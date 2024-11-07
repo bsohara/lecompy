@@ -8,3 +8,6 @@
 
 ## Padronização dos commits
 LCPY-{número}({tipo de projeto}): {descrição}
+
+## Capturas de tela 
+-- em breve --
