@@ -7,4 +7,4 @@
 
 
 ## Padronização dos commits
-LCPY-{número}: {descrição}
+LCPY-{número}({tipo de projeto}): {descrição}
