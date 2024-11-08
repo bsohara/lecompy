@@ -40,14 +40,14 @@ registration_layout = [
     [psg.Text('Código LECOM', size=(15, 1)), psg.InputText(key='codigo_lecom', size=(30, 1))],
     [psg.Text('OLT', size=(15, 1)), psg.Combo(['ZTE C350', 'ZTE C650', 'Zhone 219', 'Zhone 319', 'FiberHome 5', 'FiberHome 6', 'Huawei MA5800', 'Huawei MA5600', 'Nokia'], key='olt', size=(30, 1))],
     [psg.Text('ONT ou ONU', size=(15, 1)), psg.InputText(key='ont_ou_onu', size=(30, 1))],
-    [psg.Text('Roteador', size=(15, 1)), psg.InputText(key='roteador', size=(30, 1))],
+    [psg.Text('Roteador', size=(15, 1)), psg.InputText(key='roteador', size=(30, 1), tooltip="Caso esteja provisionando com uma ONU Bridge, informar o modelo do roteador selecionado.")],
     [psg.Text('FSAN/Nº série', size=(15, 1)), psg.InputText(key='fsan_serial', size=(30, 1))],
     [psg.Text('Início', size=(15, 1)), psg.InputText(key='inicio', size=(30, 1))],
     [psg.Text('Fim', size=(15, 1)), psg.InputText(key='fim', size=(30, 1))],
     [psg.Text('Responsável', size=(15, 1)), psg.Combo(['Bruno', 'Eslier', 'Elenir', 'Guilherme', 'Jean', 'Renato', 'Rhyan'], key='responsavel', size=(30, 1))],
     [psg.Text('Status', size=(15, 1)), psg.Combo(['Solicitado', 'Montado', 'Desmontado e finalizado'], key='status', size=(28, 1))],
     [psg.Text('Observações', size=(15, 1)), psg.Multiline(size=(30, 3), key='observacoes')],
-    [psg.Button('Submit', button_color=('white', '#5bc0de')), psg.Button('Cancel', button_color=('white', '#d9534f'))]
+    [psg.Button('Registrar', button_color=('white', '#5bc0de')), psg.Button('Cancelar', button_color=('white', '#d9534f'))]
 ]
 
 # Main window layout with menu on the left
@@ -59,7 +59,7 @@ layout = [
 ]
 
 # Create the main window
-window = psg.Window('LECOMPY - Modern UI with Navigation', layout, resizable=True, finalize=True)
+window = psg.Window('LECOMPY - Dashboard', layout, resizable=True, finalize=True)
 
 # Event loop for the main window
 current_section = 'Dashboard'
@@ -102,7 +102,7 @@ while True:
         window['Register_Section'].update(visible=True)
         current_section = 'Registrar'
 
-    elif current_section == 'Edit' and event == 'Save':
+    elif current_section == 'Atualizar' and event == 'Save':
         # Update the data list with new "Status" value from Edit section
         data[row_idx][8] = values['field_8']  # Update only the Status field
 
