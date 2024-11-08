@@ -39,14 +39,6 @@ layout = [
     [psg.Button('Visualizar'), psg.Button('Registrar monitoramento')]
 ]
 
-"""
-form_layout = [
-
-]
-"""
-
-
-
 window = psg.Window('LECOMPY', layout)
 
 while True:
@@ -72,6 +64,7 @@ while True:
             psg.popup('Nenhuma linha selecionada')
 
     if event == 'Registrar monitoramento':
-        registration_form_window = psg.Window('LECOMPY - Registro de monitoramento')
+        
+        registration_form_window = psg.Window('LECOMPY - Registro de monitoramento', ticket_form_layout)
 
 window.close()
