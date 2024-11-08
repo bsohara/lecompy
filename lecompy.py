@@ -24,7 +24,7 @@ dashboard_layout = [
     [psg.Table(values=data, headings=headings, key='table_alias', justification='center', auto_size_columns=False,
                display_row_numbers=False, col_widths=[12, 12, 15, 12, 15, 10, 10, 15, 12, 30], row_height=30,
                font=('Helvetica', 12), text_color='white', background_color='#1e1e2e', alternating_row_color='#2b2b3c',
-               header_text_color='white', header_background_color='#3a3a5b', selected_row_colors=('white', '#007bff'))]
+               header_text_color='white', header_background_color='#3a3a5b', selected_row_colors=('white', '#007bff'), vertical_scroll_only=False)]
 ]
 
 # Form layout for editing a selected record
@@ -59,7 +59,7 @@ layout = [
 ]
 
 # Create the main window
-window = psg.Window('LECOMPY - Dashboard', layout, resizable=True, finalize=True)
+window = psg.Window('LECOMPY - Dashboard', layout, size=(1000,450), resizable=True, finalize=True)
 
 # Event loop for the main window
 current_section = 'Dashboard'
@@ -74,7 +74,6 @@ while True:
         window['Dashboard_Section'].update(visible=True)
         window['Edit_Section'].update(visible=False)
         window['Register_Section'].update(visible=False)
-        current_section = 'Dashboard'
 
     elif event == 'Visualizar':
         # Check if a row is selected in the Dashboard table
@@ -91,7 +90,6 @@ while True:
             window['Dashboard_Section'].update(visible=False)
             window['Edit_Section'].update(visible=True)
             window['Register_Section'].update(visible=False)
-            current_section = 'Edit'
         else:
             psg.popup('Selecione uma linha primeiro!', font=('Helvetica', 12), title='Aviso', background_color='#1e1e2e', text_color='white')
 
@@ -100,25 +98,18 @@ while True:
         window['Dashboard_Section'].update(visible=False)
         window['Edit_Section'].update(visible=False)
         window['Register_Section'].update(visible=True)
-        current_section = 'Registrar'
 
-    elif current_section == 'Atualizar' and event == 'Save':
+    elif event == 'Atualizar':
         # Update the data list with new "Status" value from Edit section
         data[row_idx][8] = values['field_8']  # Update only the Status field
-
-        # Update the table with the modified data in the Dashboard section
         window['table_alias'].update(values=data)
-
         psg.popup('Registro atualizado com sucesso!', font=('Helvetica', 12), title='Sucesso', background_color='#1e1e2e', text_color='white')
-
-        # Return to Dashboard section after saving
         window['Dashboard_Section'].update(visible=True)
         window['Edit_Section'].update(visible=False)
         window['Register_Section'].update(visible=False)
-        current_section = 'Dashboard'
 
-    elif current_section == 'Registrar' and event == 'Submit':
-        # Handle registration logic here and add a new row to data if needed
+    elif event == 'Registrar' and values['codigo_lecom']:
+        # Add a new entry
         new_entry = [
             values['codigo_lecom'], values['olt'], values['ont_ou_onu'], values['roteador'],
             values['fsan_serial'], values['inicio'], values['fim'], values['responsavel'],
@@ -126,13 +117,10 @@ while True:
         ]
         data.append(new_entry)
         window['table_alias'].update(values=data)
-
         psg.popup('Registro adicionado com sucesso!', font=('Helvetica', 12), title='Sucesso', background_color='#1e1e2e', text_color='white')
-
-        # Return to Dashboard section after submitting
         window['Dashboard_Section'].update(visible=True)
         window['Edit_Section'].update(visible=False)
         window['Register_Section'].update(visible=False)
-        current_section = 'Dashboard'
 
 window.close()
+
