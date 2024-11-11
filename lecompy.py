@@ -1,17 +1,17 @@
 import PySimpleGUI as psg
-from datetime import datetime
+import csv
 
 # Define the menu layout
 menu_layout = [
     [psg.Button('🏠 Dashboard', key='Dashboard', size=(20, 1), font=('Helvetica', 12))],
-    [psg.Button('👁️ Visualizar', key='Visualizar', size=(20, 1), font=('Helvetica', 12))],
+    [psg.Button('👁 Visualizar', key='Visualizar', size=(20, 1), font=('Helvetica', 12))],
     [psg.Button('➕ Registrar monitoramento', key='Registrar', size=(20, 1), font=('Helvetica', 12))],
     [psg.Button('🚪 Sair', size=(20, 1), font=('Helvetica', 12), button_color=('white', '#d9534f'))]
 ]
 
 # Define table headings and initial data
 headings = ['Código LECOM','OLT', 'ONT ou ONU', 'Roteador', 'FSAN/Nº série ONT ou ONU', 'Nº série Roteador', 'Início', 'Fim', 'Responsável', 'Status', 'Observações']
-data = [['123.456', 'ZTE C650', 'Blu-Castle BCKSV630', '-', 'BCKS76AB49FF', '-', '31/10/2024', '01/01/2024', 'Bruno', 'Solicitado', 'Testes de homologação ONT Blu-Castle para homologação']]
+data = []  # Lista vazia para iniciar sem registros
 
 # Define the dashboard layout
 dashboard_layout = [
@@ -19,15 +19,20 @@ dashboard_layout = [
     [psg.Table(values=data, headings=headings, key='table_alias', justification='center', auto_size_columns=False,
                display_row_numbers=False, col_widths=[15] * len(headings), row_height=30,
                font=('Helvetica', 12), text_color='white', background_color='#1e1e2e', alternating_row_color='#2b2b3c',
-               header_text_color='white', header_background_color='#3a3a5b', selected_row_colors=('white', '#007bff'), vertical_scroll_only=False)]
+               header_text_color='white', header_background_color='#3a3a5b', selected_row_colors=('white', '#007bff'), vertical_scroll_only=False)],
+    [psg.Button('📄 Extrair para CSV', size=(15, 1), key='Exportar_CSV', button_color=('white', '#5bc0de'))]
 ]
 
 # Define the edit form layout
 edit_form_layout = [
-    [psg.Text(f'{headings[i]}:', size=(15, 1)), psg.InputText('', key=f'field_{i}', size=(30, 1), disabled=(headings[i] != 'Status'))]
+    [psg.Text(f'{headings[i]}:', size=(15, 1)), psg.InputText('', key=f'field_{i}', size=(30, 1))]
     for i in range(len(headings))
 ]
-edit_form_layout.append([psg.Button('Atualizar', button_color=('white', '#5bc0de')), psg.Button('Cancelar', key='Cancelar_Atualizacao', button_color=('white', '#d9534f'))])
+edit_form_layout.append([
+    psg.Button('Atualizar', button_color=('white', '#5bc0de')),
+    psg.Button('Cancelar', key='Cancelar_Atualizacao', button_color=('white', '#d9534f')),
+    psg.Button('Excluir', key='Excluir_Item', button_color=('white', '#d9534f'))
+])
 
 # Define the registration form layout
 registration_layout = [
@@ -64,13 +69,28 @@ row_idx = None  # Track row index in edit mode
 while True:
     event, values = window.read()
 
-    if event in (psg.WINDOW_CLOSED, 'Sair'):
+    if event == psg.WINDOW_CLOSED or event == '🚪 Sair':
         break
 
     if event == 'Dashboard':
         window['Dashboard_Section'].update(visible=True)
         window['Edit_Section'].update(visible=False)
         window['Register_Section'].update(visible=False)
+
+    elif event == 'Exportar_CSV':
+        # Nome do arquivo CSV
+        file_path = psg.popup_get_file('Salvar como', save_as=True, no_window=True, default_extension='.csv', file_types=(("CSV Files", "*.csv"),))
+
+        if file_path:
+            # Salva os dados em um arquivo CSV
+            try:
+                with open(file_path, mode='w', newline='', encoding='utf-8') as file:
+                    writer = csv.writer(file)
+                    writer.writerow(headings)  # Cabeçalhos
+                    writer.writerows(data)     # Dados
+                psg.popup('Arquivo CSV salvo com sucesso!', font=('Helvetica', 12), title='Sucesso', background_color='#1e1e2e', text_color='white')
+            except Exception as e:
+                psg.popup(f'Ocorreu um erro ao salvar o arquivo CSV: {e}', font=('Helvetica', 12), title='Erro', background_color='#1e1e2e', text_color='white')
 
     elif event == 'Visualizar':
         selected_row_idx = values.get('table_alias', None)
@@ -91,22 +111,27 @@ while True:
         window['Register_Section'].update(visible=True)
 
     elif event == 'Atualizar' and row_idx is not None:
-        updated_status = values['field_9']
-        data[row_idx][9] = updated_status
+        # Atualiza todos os campos com base nos valores dos inputs
+        updated_row = [
+            values[f'field_{i}'] for i in range(len(headings))
+        ]
+        
+        # Substitui a linha antiga pela linha atualizada
+        data[row_idx] = updated_row
+        
+        # Atualiza a tabela na interface com os novos valores
         window['table_alias'].update(values=data)
+        
         psg.popup('Registro atualizado com sucesso!', font=('Helvetica', 12), title='Sucesso', background_color='#1e1e2e', text_color='white')
+        
+        # Volta para o Dashboard
         window['Dashboard_Section'].update(visible=True)
         window['Edit_Section'].update(visible=False)
+
 
     elif event == 'Confirmar_Registro':
         # Check all required fields
         if all(values[key] for key in ['codigo_lecom', 'olt', 'ont_ou_onu', 'status', 'responsavel', 'inicio', 'fim']):
-            try:
-                inicio = datetime.strptime(values['inicio'], "%d/%m/%Y")
-                fim = datetime.strptime(values['fim'], "%d/%m/%Y")
-            except ValueError:
-                psg.popup('Formato de data inválido! Use DD/MM/YYYY.', font=('Helvetica', 12), title='Erro', background_color='#1e1e2e', text_color='white')
-                continue
             
             new_entry = [
                 values['codigo_lecom'], values['olt'], values['ont_ou_onu'], values['roteador'],
@@ -121,7 +146,6 @@ while True:
         else:
             psg.popup('Por favor, preencha todos os campos obrigatórios!', font=('Helvetica', 12), title='Erro', background_color='#1e1e2e', text_color='white')
 
-
     elif event == 'Cancelar_Registro':
         # Volta para a página do dashboard ao cancelar o registro
         window['Register_Section'].update(visible=False)
@@ -133,4 +157,16 @@ while True:
         window['Dashboard_Section'].update(visible=True)
         window['Edit_Section'].update(visible=False)
 
+    elif event == 'Excluir_Item' and row_idx is not None:
+        confirm_delete = psg.popup_yes_no(f'Tem certeza que deseja excluir o registro "{data[row_idx][0]}"?', font=('Helvetica', 12), title='Confirmar Exclusão', background_color='#1e1e2e', text_color='white')
+        if confirm_delete == 'Yes':
+            del data[row_idx]
+            window['table_alias'].update(values=data)
+            psg.popup('Registro excluído com sucesso!', font=('Helvetica', 12), title='Sucesso', background_color='#1e1e2e', text_color='white')
+            window['Dashboard_Section'].update(visible=True)
+            window['Edit_Section'].update(visible=False)
+        else:
+            psg.popup('Operação cancelada.', font=('Helvetica', 12), title='Cancelado', background_color='#1e1e2e', text_color='white')
+
 window.close()
+exit(0)
