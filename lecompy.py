@@ -1,5 +1,65 @@
 import PySimpleGUI as psg
 import csv
+import sqlite3 as sql3
+
+
+def connect_to_db(db_name="lecompy_data.db"):
+    conn = sql3.connect(db_name)
+    cursor = conn.cursor()
+    return conn, cursor
+
+def fetch_all_data():
+    conn, cursor = connect_to_db()
+    cursor.execute('SELECT * FROM registros')
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
+
+def insert_data(codigo_lecom, olt, ont_ou_onu, roteador, fsan_serial_ont_onu, serial_roteador, inicio, fim, responsavel, status, observacoes):
+    conn, cursor = connect_to_db()
+    cursor.execute('''
+        INSERT INTO registros (codigo_lecom, olt, ont_ou_onu, roteador, fsan_serial_ont_onu, serial_roteador, inicio, fim, responsavel, status, observacoes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (codigo_lecom, olt, ont_ou_onu, roteador, fsan_serial_ont_onu, serial_roteador, inicio, fim, responsavel, status, observacoes))
+    conn.commit()
+    conn.close()
+
+def update_data(id, codigo_lecom, olt, ont_ou_onu, roteador, fsan_serial_ont_onu, serial_roteador, inicio, fim, responsavel, status, observacoes):
+    conn, cursor = connect_to_db()
+    cursor.execute('''
+        UPDATE registros
+        SET codigo_lecom = ?, olt = ?, ont_ou_onu = ?, roteador = ?, fsan_serial_ont_onu = ?, serial_roteador = ?, inicio = ?, fim = ?, responsavel = ?, status = ?, observacoes = ?
+        WHERE id = ?
+    ''', (codigo_lecom, olt, ont_ou_onu, roteador, fsan_serial_ont_onu, serial_roteador, inicio, fim, responsavel, status, observacoes, id))
+    conn.commit()
+    conn.close()
+
+def delete_data(id):
+    conn, cursor = connect_to_db()
+    cursor.execute('DELETE FROM registros WHERE id = ?', (id,))
+    conn.commit()
+    conn.close()
+
+def create_table():
+    conn, cursor = connect_to_db()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS registros (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            codigo_lecom TEXT,
+            olt TEXT,
+            ont_ou_onu TEXT,
+            roteador TEXT,
+            fsan_serial_ont_onu TEXT,
+            serial_roteador TEXT,
+            inicio TEXT,
+            fim TEXT,
+            responsavel TEXT,
+            status TEXT,
+            observacoes TEXT
+        )
+    ''')
+    conn.commit()
+    conn.close()
 
 # Define the menu layout
 menu_layout = [
@@ -10,8 +70,9 @@ menu_layout = [
 ]
 
 # Define table headings and initial data
+create_table()
 headings = ['Código LECOM','OLT', 'ONT ou ONU', 'Roteador', 'FSAN/Nº série ONT ou ONU', 'Nº série Roteador', 'Início', 'Fim', 'Responsável', 'Status', 'Observações']
-data = []  # Lista vazia para iniciar sem registros
+data = fetch_all_data()  # Lista vazia para iniciar sem registros
 
 # Define the dashboard layout
 dashboard_layout = [
@@ -96,7 +157,7 @@ while True:
         selected_row_idx = values.get('table_alias', None)
         if selected_row_idx and len(selected_row_idx) > 0:
             row_idx = selected_row_idx[0]
-            selected_row_data = data[row_idx]
+            selected_row_data = data[row_idx][1:]  # Ignora o ID
             for i in range(len(headings)):
                 window[f'field_{i}'].update(selected_row_data[i])
             window['Dashboard_Section'].update(visible=False)
@@ -111,35 +172,25 @@ while True:
         window['Register_Section'].update(visible=True)
 
     elif event == 'Atualizar' and row_idx is not None:
-        # Atualiza todos os campos com base nos valores dos inputs
-        updated_row = [
-            values[f'field_{i}'] for i in range(len(headings))
-        ]
-        
-        # Substitui a linha antiga pela linha atualizada
-        data[row_idx] = updated_row
-        
-        # Atualiza a tabela na interface com os novos valores
-        window['table_alias'].update(values=data)
-        
+        record_id = data[row_idx][0]  # Primeiro valor é o ID
+        updated_row = [values[f'field_{i}'] for i in range(len(headings))]  # Ignora o ID
+        update_data(record_id, *updated_row)
+        data = fetch_all_data()
+        window['table_alias'].update(values=[row[1:] for row in data])
         psg.popup('Registro atualizado com sucesso!', font=('Helvetica', 12), title='Sucesso', background_color='#1e1e2e', text_color='white')
-        
-        # Volta para o Dashboard
         window['Dashboard_Section'].update(visible=True)
         window['Edit_Section'].update(visible=False)
 
 
     elif event == 'Confirmar_Registro':
-        # Check all required fields
         if all(values[key] for key in ['codigo_lecom', 'olt', 'ont_ou_onu', 'status', 'responsavel', 'inicio', 'fim']):
-            
-            new_entry = [
+            insert_data(
                 values['codigo_lecom'], values['olt'], values['ont_ou_onu'], values['roteador'],
-                values['fsan_serial_ont_onu'], values['serial_roteador'], values['inicio'], values['fim'], 
+                values['fsan_serial_ont_onu'], values['serial_roteador'], values['inicio'], values['fim'],
                 values['responsavel'], values['status'], values['observacoes'].strip()
-            ]
-            data.append(new_entry)
-            window['table_alias'].update(values=data)
+            )
+            data = fetch_all_data()
+            window['table_alias'].update(values=[row[1:] for row in data])  # Atualiza a tabela com os novos dados
             psg.popup('Registro adicionado com sucesso!', font=('Helvetica', 12), title='Sucesso', background_color='#1e1e2e', text_color='white')
             window['Dashboard_Section'].update(visible=True)
             window['Register_Section'].update(visible=False)
@@ -158,10 +209,12 @@ while True:
         window['Edit_Section'].update(visible=False)
 
     elif event == 'Excluir_Item' and row_idx is not None:
-        confirm_delete = psg.popup_yes_no(f'Tem certeza que deseja excluir o registro "{data[row_idx][0]}"?', font=('Helvetica', 12), title='Confirmar Exclusão', background_color='#1e1e2e', text_color='white')
+        record_id = data[row_idx][0]  # Primeiro valor é o ID
+        confirm_delete = psg.popup_yes_no(f'Tem certeza que deseja excluir o registro "{data[row_idx][1]}"?', font=('Helvetica', 12), title='Confirmar Exclusão', background_color='#1e1e2e', text_color='white')
         if confirm_delete == 'Yes':
-            del data[row_idx]
-            window['table_alias'].update(values=data)
+            delete_data(record_id)
+            data = fetch_all_data()
+            window['table_alias'].update(values=[row[1:] for row in data])
             psg.popup('Registro excluído com sucesso!', font=('Helvetica', 12), title='Sucesso', background_color='#1e1e2e', text_color='white')
             window['Dashboard_Section'].update(visible=True)
             window['Edit_Section'].update(visible=False)
