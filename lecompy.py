@@ -20,7 +20,7 @@ dashboard_layout = [
                display_row_numbers=False, col_widths=[15] * len(headings), row_height=30,
                font=('Helvetica', 12), text_color='white', background_color='#1e1e2e', alternating_row_color='#2b2b3c',
                header_text_color='white', header_background_color='#3a3a5b', selected_row_colors=('white', '#007bff'), vertical_scroll_only=False)],
-    [psg.Button('📄 Extrair para CSV', size=(15, 1), key='Exportar_CSV', button_color=('white', '#5bc0de'))]
+    [psg.Button('📄 Exportar CSV', size=(15, 1), key='Exportar_CSV', button_color=('white', '#5bc0de'))]
 ]
 
 # Define the edit form layout
