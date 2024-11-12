@@ -95,14 +95,14 @@ def login_window():
         
         if event == psg.WINDOW_CLOSED or event == 'Sair':
             window.close()
-            return False
+            return None  # Retorna None se o usuário sair
         
         if event == 'Entrar':
             username = values['username']
             password = values['password']
             if verify_credentials(username, password):
                 window.close()
-                return True
+                return username  # Retorna o nome do usuário logado
             else:
                 psg.popup('Usuário ou senha incorretos. Tente novamente.', title='Erro')
 
@@ -129,12 +129,15 @@ registration_layout = [[psg.Text('✏️ Registrar Monitoramento', font=header_f
                      [[psg.Button('💾 Confirmar Registro', **button_style), psg.Button('Cancelar', key='Cancelar_Registro', **button_style)]]
 
 # Função principal
-def main_window():
+def main_window(logged_user):
     layout = [
-        [psg.Column(menu_layout, element_justification='center', pad=(10, 20), background_color='#007ACC'), psg.VerticalSeparator(),
+        [
+         psg.Column(menu_layout, element_justification='center', pad=(10, 20), background_color='#007ACC'), psg.VerticalSeparator(),
          psg.Column(dashboard_layout, key='Dashboard_Section', visible=True),
          psg.Column(edit_form_layout, key='Edit_Section', visible=False),
-         psg.Column(registration_layout, key='Register_Section', visible=False)]
+         psg.Column(registration_layout, key='Register_Section', visible=False)
+        ],
+        [psg.Text(f'Usuário logado: {logged_user}', font=('Segoe UI', 10), text_color='#333333', pad=(10, 10))]
     ]
     window = psg.Window('LECOMPY - Dashboard', layout, resizable=True, finalize=True, background_color='#FFFFFF')
     data = fetch_all_data()
@@ -216,6 +219,6 @@ def main_window():
 
     window.close()
 
-# Executa a função de login antes de abrir a janela principal
-if login_window():
-    main_window()
+logged_user = login_window()
+if logged_user:
+    main_window(logged_user)
