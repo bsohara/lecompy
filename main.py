@@ -2,6 +2,14 @@ import PySimpleGUI as psg
 import csv
 import sqlite3 as sql3
 
+# Configuração do tema e estilo moderno
+psg.theme('SystemDefaultForReal')  # Tema neutro
+
+# Definindo cores e estilo do layout
+button_style = {'button_color': ('#FFFFFF', '#007ACC'), 'size': (20, 2), 'border_width': 0, 'font': ('Segoe UI', 10)}
+table_style = {'background_color': '#EAEAEA', 'text_color': '#333333', 'font': ('Segoe UI', 10)}
+header_font = ('Segoe UI', 12, 'bold')
+
 # Funções de banco de dados
 def connect_to_db(db_name="lecompy_data.db"):
     conn = sql3.connect(db_name)
@@ -9,6 +17,7 @@ def connect_to_db(db_name="lecompy_data.db"):
     cursor = conn.cursor()
     return conn, cursor
 
+# Funções de registros
 def fetch_all_data():
     conn, cursor = connect_to_db()
     cursor.execute('SELECT codigo_lecom, olt, ont_ou_onu, roteador, fsan_serial_ont_onu, serial_roteador, inicio, fim, responsavel, status, observacoes FROM registros')
@@ -53,36 +62,81 @@ def create_table():
                         responsavel TEXT,
                         status TEXT,
                         observacoes TEXT)''')
+    cursor.execute('''CREATE TABLE IF NOT EXISTS users (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        username TEXT UNIQUE,
+                        password TEXT)''')
+    # Inserir um usuário padrão (admin/admin) para o primeiro acesso
+    cursor.execute("INSERT OR IGNORE INTO users (username, password) VALUES (?, ?)", ('admin', 'admin'))
     conn.commit()
     conn.close()
 
 create_table()
 
-# Layouts
+# Funções de autenticação
+def verify_credentials(username, password):
+    conn, cursor = connect_to_db()
+    cursor.execute("SELECT * FROM users WHERE username = ? AND password = ?", (username, password))
+    user = cursor.fetchone()
+    conn.close()
+    return user is not None
+
+# Função de login
+def login_window():
+    layout = [
+        [psg.Text('Usuário:', font=('Segoe UI', 12)), psg.InputText(key='username', font=('Segoe UI', 10))],
+        [psg.Text('Senha:', font=('Segoe UI', 12)), psg.InputText(key='password', password_char='*', font=('Segoe UI', 10))],
+        [psg.Button('Entrar', size=(10, 1)), psg.Button('Sair', size=(10, 1))]
+    ]
+    window = psg.Window('LECOMPY - Login', layout, finalize=True)
+    
+    while True:
+        event, values = window.read()
+        
+        if event == psg.WINDOW_CLOSED or event == 'Sair':
+            window.close()
+            return False
+        
+        if event == 'Entrar':
+            username = values['username']
+            password = values['password']
+            if verify_credentials(username, password):
+                window.close()
+                return True
+            else:
+                psg.popup('Usuário ou senha incorretos. Tente novamente.', title='Erro')
+
+# Layouts principais
 headings = ['Código LECOM', 'OLT', 'ONT ou ONU', 'Roteador', 'FSAN/Nº série ONT ou ONU', 'Nº série Roteador', 'Início', 'Fim', 'Responsável', 'Status', 'Observações']
-menu_layout = [[psg.Button('🏠 Dashboard', key='Dashboard')], [psg.Button('👁 Visualizar', key='Visualizar')], 
-               [psg.Button('➕ Registrar monitoramento', key='Registrar')], [psg.Button('🚪 Sair', key='Sair')]]
+menu_layout = [[psg.Button('🏠 Dashboard', key='Dashboard', **button_style)], 
+               [psg.Button('👁 Visualizar', key='Visualizar', **button_style)], 
+               [psg.Button('➕ Registrar', key='Registrar', **button_style)], 
+               [psg.Button('🚪 Sair', key='Sair', **button_style)]]
 
-dashboard_layout = [[psg.Text('LECOMPY - Dashboard')],
-                    [psg.Table(values=fetch_all_data(), headings=headings, key='table_alias', auto_size_columns=False,
-                               display_row_numbers=False, col_widths=[15] * len(headings), row_height=30)],
-                    [psg.Button('📄 Exportar CSV', key='Exportar_CSV')]]
+dashboard_layout = [
+    [psg.Text('📊 LECOMPY - Dashboard', font=header_font, text_color='#007ACC')],
+    [psg.Table(values=fetch_all_data(), headings=headings, key='table_alias', auto_size_columns=False,
+               display_row_numbers=False, col_widths=[15] * len(headings), row_height=30, header_font=header_font,
+               **table_style)],
+    [psg.Button('📄 Exportar CSV', key='Exportar_CSV', **button_style)]
+]
 
-edit_form_layout = [[psg.Text(f'{headings[i]}:'), psg.InputText('', key=f'field_{i}')] for i in range(len(headings))] + \
-                   [[psg.Button('Atualizar'), psg.Button('Excluir', key='Excluir_Item')]]
+edit_form_layout = [[psg.Text(f'{headings[i]}:', size=(20, 1)), psg.InputText('', key=f'field_{i}', font=('Segoe UI', 10))] for i in range(len(headings))] + \
+                   [[psg.Button('Atualizar', **button_style), psg.Button('Excluir', key='Excluir_Item', **button_style)]]
 
-registration_layout = [[psg.Text('Registrar Monitoramento')]] + \
-                     [[psg.Text(headings[i]), psg.InputText(key=f'reg_field_{i}')] for i in range(len(headings))] + \
-                     [[psg.Button('💾 Confirmar Registro'), psg.Button('Cancelar', key='Cancelar_Registro')]]
+registration_layout = [[psg.Text('✏️ Registrar Monitoramento', font=header_font, text_color='#007ACC')]] + \
+                     [[psg.Text(headings[i], size=(20, 1)), psg.InputText(key=f'reg_field_{i}', font=('Segoe UI', 10))] for i in range(len(headings))] + \
+                     [[psg.Button('💾 Confirmar Registro', **button_style), psg.Button('Cancelar', key='Cancelar_Registro', **button_style)]]
 
 # Função principal
 def main_window():
-    layout = [[psg.Column(menu_layout, vertical_alignment='top'), psg.VerticalSeparator(),
-               psg.Column(dashboard_layout, key='Dashboard_Section', visible=True),
-               psg.Column(edit_form_layout, key='Edit_Section', visible=False),
-               psg.Column(registration_layout, key='Register_Section', visible=False)]]
-
-    window = psg.Window('LECOMPY - Dashboard', layout, resizable=True, finalize=True)
+    layout = [
+        [psg.Column(menu_layout, element_justification='center', pad=(10, 20), background_color='#007ACC'), psg.VerticalSeparator(),
+         psg.Column(dashboard_layout, key='Dashboard_Section', visible=True),
+         psg.Column(edit_form_layout, key='Edit_Section', visible=False),
+         psg.Column(registration_layout, key='Register_Section', visible=False)]
+    ]
+    window = psg.Window('LECOMPY - Dashboard', layout, resizable=True, finalize=True, background_color='#FFFFFF')
     data = fetch_all_data()
     row_idx = None
 
@@ -103,13 +157,24 @@ def main_window():
             window['Register_Section'].update(visible=True)
 
         elif event == 'Confirmar Registro':
+        # Verifica se todos os campos foram preenchidos
             if all(values.get(f'reg_field_{i}') for i in range(len(headings))):
-                insert_data(*[values[f'reg_field_{i}'] for i in range(len(headings))])
-                data = fetch_all_data()
-                window['table_alias'].update(values=data)
-                psg.popup('Registro adicionado com sucesso!', title='Sucesso')
-                window['Dashboard_Section'].update(visible=True)
-                window['Register_Section'].update(visible=False)
+                # Exibe os valores que estão sendo registrados
+                print("Dados a serem inseridos:", [values[f'reg_field_{i}'] for i in range(len(headings))])
+
+                # Realiza a inserção dos dados
+                try:
+                    insert_data(*[values[f'reg_field_{i}'] for i in range(len(headings))])
+                    # Atualiza a tabela com os dados do banco de dados
+                    data = fetch_all_data()
+                    window['table_alias'].update(values=data)
+                    psg.popup('Registro adicionado com sucesso!', title='Sucesso')
+                    window['Dashboard_Section'].update(visible=True)
+                    window['Register_Section'].update(visible=False)
+                except Exception as e:
+                    # Exibe erro caso haja um problema na inserção
+                    print("Erro ao inserir dados:", e)
+                    psg.popup(f"Erro ao registrar dados: {e}", title='Erro')
             else:
                 psg.popup('Preencha todos os campos!', title='Erro')
 
@@ -151,4 +216,6 @@ def main_window():
 
     window.close()
 
-main_window()
+# Executa a função de login antes de abrir a janela principal
+if login_window():
+    main_window()
