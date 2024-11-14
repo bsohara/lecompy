@@ -1,224 +1,254 @@
-import PySimpleGUI as psg
-import csv
-import sqlite3 as sql3
+import sqlite3
+import PySimpleGUI as sg
+from datetime import datetime
 
-# Configuração do tema e estilo moderno
-psg.theme('SystemDefaultForReal')  # Tema neutro
+# Conectar ao banco de dados SQLite
+conn = sqlite3.connect('lecompy_data.db')
+cursor = conn.cursor()
 
-# Definindo cores e estilo do layout
-button_style = {'button_color': ('#FFFFFF', '#007ACC'), 'size': (20, 2), 'border_width': 0, 'font': ('Segoe UI', 10)}
-table_style = {'background_color': '#EAEAEA', 'text_color': '#333333', 'font': ('Segoe UI', 10)}
-header_font = ('Segoe UI', 12, 'bold')
+# Criar tabelas no banco de dados
+def create_tables():
+    cursor.execute('''CREATE TABLE IF NOT EXISTS usuarios (
+                        id_usuario INTEGER PRIMARY KEY AUTOINCREMENT,
+                        usuario TEXT NOT NULL UNIQUE,
+                        senha TEXT NOT NULL)''')
 
-# Funções de banco de dados
-def connect_to_db(db_name="lecompy_data.db"):
-    conn = sql3.connect(db_name)
-    conn.execute("PRAGMA busy_timeout = 5000")
-    cursor = conn.cursor()
-    return conn, cursor
+    cursor.execute('''CREATE TABLE IF NOT EXISTS ont (
+                        id_ont INTEGER PRIMARY KEY AUTOINCREMENT,
+                        ativo_desktop TEXT,
+                        vendor TEXT,
+                        modelo TEXT,
+                        mac TEXT,
+                        numero_serie TEXT,
+                        fsan TEXT)''')
 
-# Funções de registros
-def fetch_all_data():
-    conn, cursor = connect_to_db()
-    cursor.execute('SELECT codigo_lecom, olt, ont_ou_onu, roteador, fsan_serial_ont_onu, serial_roteador, inicio, fim, responsavel, status, observacoes FROM registros')
-    rows = cursor.fetchall()
-    conn.close()
-    return rows
+    cursor.execute('''CREATE TABLE IF NOT EXISTS onu (
+                        id_onu INTEGER PRIMARY KEY AUTOINCREMENT,
+                        ativo_desktop TEXT,
+                        vendor TEXT,
+                        modelo TEXT,
+                        mac TEXT,
+                        numero_serie TEXT,
+                        fsan TEXT)''')
 
-def insert_data(codigo_lecom, olt, ont_ou_onu, roteador, fsan_serial_ont_onu, serial_roteador, inicio, fim, responsavel, status, observacoes):
-    conn, cursor = connect_to_db()
-    cursor.execute('''INSERT INTO registros 
-                      (codigo_lecom, olt, ont_ou_onu, roteador, fsan_serial_ont_onu, serial_roteador, inicio, fim, responsavel, status, observacoes)
-                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-                   (codigo_lecom, olt, ont_ou_onu, roteador, fsan_serial_ont_onu, serial_roteador, inicio, fim, responsavel, status, observacoes))
+    cursor.execute('''CREATE TABLE IF NOT EXISTS roteador (
+                        id_roteador INTEGER PRIMARY KEY AUTOINCREMENT,
+                        ativo_desktop TEXT,
+                        vendor TEXT,
+                        modelo TEXT,
+                        mac TEXT,
+                        numero_serie TEXT)''')
+
+    cursor.execute('''CREATE TABLE IF NOT EXISTS registro_ont (
+                        id_registro INTEGER PRIMARY KEY AUTOINCREMENT,
+                        id_ont INTEGER,
+                        id_usuario INTEGER,
+                        data_inicio TEXT,
+                        data_conclusao TEXT,
+                        descricao_chamado TEXT,
+                        data_chamado TEXT,
+                        FOREIGN KEY (id_ont) REFERENCES ont(id_ont),
+                        FOREIGN KEY (id_usuario) REFERENCES usuarios(id_usuario))''')
+
+    cursor.execute('''CREATE TABLE IF NOT EXISTS registro_onu_roteador (
+                        id_registro INTEGER PRIMARY KEY AUTOINCREMENT,
+                        id_onu INTEGER,
+                        id_roteador INTEGER,
+                        id_usuario INTEGER,
+                        data_inicio TEXT,
+                        data_conclusao TEXT,
+                        descricao_chamado TEXT,
+                        data_chamado TEXT,
+                        FOREIGN KEY (id_onu) REFERENCES onu(id_onu),
+                        FOREIGN KEY (id_roteador) REFERENCES roteador(id_roteador),
+                        FOREIGN KEY (id_usuario) REFERENCES usuarios(id_usuario))''')
+
     conn.commit()
-    conn.close()
 
-def update_data(id, *values):
-    conn, cursor = connect_to_db()
-    cursor.execute('''UPDATE registros SET codigo_lecom=?, olt=?, ont_ou_onu=?, roteador=?, fsan_serial_ont_onu=?, serial_roteador=?, 
-                      inicio=?, fim=?, responsavel=?, status=?, observacoes=? WHERE id=?''', (*values, id))
+# Função para inserir dados nas tabelas
+def insert_data(table, values):
+    columns = ', '.join(values.keys())
+    placeholders = ', '.join(['?'] * len(values))
+    sql = f'INSERT INTO {table} ({columns}) VALUES ({placeholders})'
+    cursor.execute(sql, tuple(values.values()))
     conn.commit()
-    conn.close()
 
-def delete_data(id):
-    conn, cursor = connect_to_db()
-    cursor.execute('DELETE FROM registros WHERE id = ?', (id,))
-    conn.commit()
-    conn.close()
+# Função para autenticar usuário
+def authenticate_user(username, password):
+    cursor.execute("SELECT id_usuario FROM usuarios WHERE usuario = ? AND senha = ?", (username, password))
+    result = cursor.fetchone()
+    return result[0] if result else None
 
-def create_table():
-    conn, cursor = connect_to_db()
-    cursor.execute('''CREATE TABLE IF NOT EXISTS registros (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        codigo_lecom TEXT,
-                        olt TEXT,
-                        ont_ou_onu TEXT,
-                        roteador TEXT,
-                        fsan_serial_ont_onu TEXT,
-                        serial_roteador TEXT,
-                        inicio TEXT,
-                        fim TEXT,
-                        responsavel TEXT,
-                        status TEXT,
-                        observacoes TEXT)''')
-    cursor.execute('''CREATE TABLE IF NOT EXISTS users (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        username TEXT UNIQUE,
-                        password TEXT)''')
-    # Inserir um usuário padrão (admin/admin) para o primeiro acesso
-    cursor.execute("INSERT OR IGNORE INTO users (username, password) VALUES (?, ?)", ('admin', 'admin'))
-    conn.commit()
-    conn.close()
-
-create_table()
-
-# Funções de autenticação
-def verify_credentials(username, password):
-    conn, cursor = connect_to_db()
-    cursor.execute("SELECT * FROM users WHERE username = ? AND password = ?", (username, password))
-    user = cursor.fetchone()
-    conn.close()
-    return user is not None
-
-# Função de login
-def login_window():
+# Layout para a tela de login
+def login_layout():
     layout = [
-        [psg.Text('Usuário:', font=('Segoe UI', 12)), psg.InputText(key='username', font=('Segoe UI', 10))],
-        [psg.Text('Senha:', font=('Segoe UI', 12)), psg.InputText(key='password', password_char='*', font=('Segoe UI', 10))],
-        [psg.Button('Entrar', size=(10, 1)), psg.Button('Sair', size=(10, 1))]
+        [sg.Text('Usuário'), sg.InputText(key='-LOGIN_USER-')],
+        [sg.Text('Senha'), sg.InputText(key='-LOGIN_PASS-', password_char='*')],
+        [sg.Button('Login'), sg.Button('Cadastrar Usuário')]
     ]
-    window = psg.Window('LECOMPY - Login', layout, finalize=True)
+    return layout
+
+# Layout para o portal principal
+def main_layout():
+    tab1_layout = [
+        [sg.Text('Ativo Desktop'), sg.InputText(key='-DESKTOP-')],
+        [sg.Text('Vendor'), sg.InputText(key='-VENDOR-')],
+        [sg.Text('Modelo'), sg.InputText(key='-MODEL-')],
+        [sg.Text('MAC'), sg.InputText(key='-MAC-')],
+        [sg.Text('Número de Série'), sg.InputText(key='-SERIE-')],
+        [sg.Text('FSAN'), sg.InputText(key='-FSAN-')],
+        [sg.Button('Cadastrar ONT'), sg.Button('Cadastrar ONU'), sg.Button('Cadastrar Roteador')]
+    ]
+
+    tab2_layout = [
+        [sg.Text('ID da ONT'), sg.InputText(key='-ONT-ID-')],
+        [sg.Text('Data de Início (YYYY-MM-DD)'), sg.InputText(key='-START-')],
+        [sg.Text('Data de Conclusão (YYYY-MM-DD)'), sg.InputText(key='-END-')],
+        [sg.Text('Descrição do Chamado LECOM'), sg.InputText(key='-DESC-CHAMADO-')],
+        [sg.Button('Registrar ONT')]
+    ]
+
+    tab3_layout = [
+        [sg.Text('ID da ONU'), sg.InputText(key='-ONU-ID-')],
+        [sg.Text('ID do Roteador'), sg.InputText(key='-ROUTER-ID-')],
+        [sg.Text('Data de Início (YYYY-MM-DD)'), sg.InputText(key='-START-ROUTER-')],
+        [sg.Text('Data de Conclusão (YYYY-MM-DD)'), sg.InputText(key='-END-ROUTER-')],
+        [sg.Text('Descrição do Chamado LECOM'), sg.InputText(key='-DESC-CHAMADO-ROUTER-')],
+        [sg.Button('Registrar ONU e Roteador')]
+    ]
+
+    tab5_layout = [
+        [sg.Text('Consultar Registros')],
+        [sg.Button('Mostrar Registros ONT'), sg.Button('Mostrar Registros ONU e Roteador')],
+        [sg.Table(values=[], headings=['ID', 'Vendor', 'Modelo', 'Data Início', 'Data Conclusão', 'Chamado'],
+                  key='-TABLE-', auto_size_columns=True, display_row_numbers=False)]
+    ]
+
+    layout = [
+        [sg.TabGroup([[sg.Tab('Equipamentos', tab1_layout),
+                       sg.Tab('Registro ONT', tab2_layout),
+                       sg.Tab('Registro ONU + Roteador', tab3_layout),
+                       sg.Tab('Consultas', tab5_layout)]])],
+    ]
     
-    while True:
-        event, values = window.read()
-        
-        if event == psg.WINDOW_CLOSED or event == 'Sair':
-            window.close()
-            return None  # Retorna None se o usuário sair
-        
-        if event == 'Entrar':
-            username = values['username']
-            password = values['password']
-            if verify_credentials(username, password):
-                window.close()
-                return username  # Retorna o nome do usuário logado
-            else:
-                psg.popup('Usuário ou senha incorretos. Tente novamente.', title='Erro')
+    return layout
 
-# Layouts principais
-headings = ['Código LECOM', 'OLT', 'ONT ou ONU', 'Roteador', 'FSAN/Nº série ONT ou ONU', 'Nº série Roteador', 'Início', 'Fim', 'Responsável', 'Status', 'Observações']
-menu_layout = [[psg.Button('🏠 Dashboard', key='Dashboard', **button_style)], 
-               [psg.Button('👁 Visualizar', key='Visualizar', **button_style)], 
-               [psg.Button('➕ Registrar', key='Registrar', **button_style)], 
-               [psg.Button('🚪 Sair', key='Sair', **button_style)]]
-
-dashboard_layout = [
-    [psg.Text('📊 LECOMPY - Dashboard', font=header_font, text_color='#007ACC')],
-    [psg.Table(values=fetch_all_data(), headings=headings, key='table_alias', auto_size_columns=False,
-               display_row_numbers=False, col_widths=[15] * len(headings), row_height=30, header_font=header_font,
-               **table_style)],
-    [psg.Button('📄 Exportar CSV', key='Exportar_CSV', **button_style)]
-]
-
-edit_form_layout = [[psg.Text(f'{headings[i]}:', size=(20, 1)), psg.InputText('', key=f'field_{i}', font=('Segoe UI', 10))] for i in range(len(headings))] + \
-                   [[psg.Button('Atualizar', **button_style), psg.Button('Excluir', key='Excluir_Item', **button_style)]]
-
-registration_layout = [[psg.Text('✏️ Registrar Monitoramento', font=header_font, text_color='#007ACC')]] + \
-                     [[psg.Text(headings[i], size=(20, 1)), psg.InputText(key=f'reg_field_{i}', font=('Segoe UI', 10))] for i in range(len(headings))] + \
-                     [[psg.Button('💾 Confirmar Registro', **button_style), psg.Button('Cancelar', key='Cancelar_Registro', **button_style)]]
-
-# Função principal
-def main_window(logged_user):
-    layout = [
-        [
-         psg.Column(menu_layout, element_justification='center', pad=(10, 20), background_color='#007ACC'), psg.VerticalSeparator(),
-         psg.Column(dashboard_layout, key='Dashboard_Section', visible=True),
-         psg.Column(edit_form_layout, key='Edit_Section', visible=False),
-         psg.Column(registration_layout, key='Register_Section', visible=False)
-        ],
-        [psg.Text(f'Usuário logado: {logged_user}', font=('Segoe UI', 10), text_color='#333333', pad=(10, 10))]
-    ]
-    window = psg.Window('LECOMPY - Dashboard', layout, resizable=True, finalize=True, background_color='#FFFFFF')
-    data = fetch_all_data()
-    row_idx = None
+# Janela principal
+def main(user_id):
+    sg.theme('LightBlue')
+    window = sg.Window('Portal de Gerenciamento', main_layout())
 
     while True:
         event, values = window.read()
-
-        if event == psg.WINDOW_CLOSED or event == 'Sair':
+        if event == sg.WINDOW_CLOSED:
             break
 
-        if event == 'Dashboard':
-            window['Dashboard_Section'].update(visible=True)
-            window['Edit_Section'].update(visible=False)
-            window['Register_Section'].update(visible=False)
+        # Cadastro de ONT, ONU e Roteador
+        if event == 'Cadastrar ONT':
+            insert_data('ont', {
+                'ativo_desktop': values['-DESKTOP-'],
+                'vendor': values['-VENDOR-'],
+                'modelo': values['-MODEL-'],
+                'mac': values['-MAC-'],
+                'numero_serie': values['-SERIE-'],
+                'fsan': values['-FSAN-']
+            })
+            sg.popup('ONT cadastrada com sucesso!')
 
-        elif event == 'Registrar':
-            window['Dashboard_Section'].update(visible=False)
-            window['Edit_Section'].update(visible=False)
-            window['Register_Section'].update(visible=True)
+        elif event == 'Cadastrar ONU':
+            insert_data('onu', {
+                'ativo_desktop': values['-DESKTOP-'],
+                'vendor': values['-VENDOR-'],
+                'modelo': values['-MODEL-'],
+                'mac': values['-MAC-'],
+                'numero_serie': values['-SERIE-'],
+                'fsan': values['-FSAN-']
+            })
+            sg.popup('ONU cadastrada com sucesso!')
 
-        elif event == 'Confirmar Registro':
-        # Verifica se todos os campos foram preenchidos
-            if all(values.get(f'reg_field_{i}') for i in range(len(headings))):
-                # Exibe os valores que estão sendo registrados
-                print("Dados a serem inseridos:", [values[f'reg_field_{i}'] for i in range(len(headings))])
+        elif event == 'Cadastrar Roteador':
+            insert_data('roteador', {
+                'ativo_desktop': values['-DESKTOP-'],
+                'vendor': values['-VENDOR-'],
+                'modelo': values['-MODEL-'],
+                'mac': values['-MAC-'],
+                'numero_serie': values['-SERIE-']
+            })
+            sg.popup('Roteador cadastrado com sucesso!')
 
-                # Realiza a inserção dos dados
-                try:
-                    insert_data(*[values[f'reg_field_{i}'] for i in range(len(headings))])
-                    # Atualiza a tabela com os dados do banco de dados
-                    data = fetch_all_data()
-                    window['table_alias'].update(values=data)
-                    psg.popup('Registro adicionado com sucesso!', title='Sucesso')
-                    window['Dashboard_Section'].update(visible=True)
-                    window['Register_Section'].update(visible=False)
-                except Exception as e:
-                    # Exibe erro caso haja um problema na inserção
-                    print("Erro ao inserir dados:", e)
-                    psg.popup(f"Erro ao registrar dados: {e}", title='Erro')
-            else:
-                psg.popup('Preencha todos os campos!', title='Erro')
+        # Registro ONT
+        elif event == 'Registrar ONT':
+            insert_data('registro_ont', {
+                'id_ont': values['-ONT-ID-'],
+                'id_usuario': user_id,
+                'data_inicio': values['-START-'],
+                'data_conclusao': values['-END-'],
+                'descricao_chamado': values['-DESC-CHAMADO-'],
+                'data_chamado': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            })
+            sg.popup('Registro de ONT realizado com sucesso!')
 
-        elif event == 'Visualizar':
-            selected_row_idx = values.get('table_alias', [])
-            if selected_row_idx:
-                row_idx = selected_row_idx[0]
-                selected_row_data = data[row_idx][1:]
-                for i, val in enumerate(selected_row_data):
-                    window[f'field_{i}'].update(val)
-                window['Dashboard_Section'].update(visible=False)
-                window['Edit_Section'].update(visible=True)
+        # Registro ONU e Roteador
+        elif event == 'Registrar ONU e Roteador':
+            insert_data('registro_onu_roteador', {
+                'id_onu': values['-ONU-ID-'],
+                'id_roteador': values['-ROUTER-ID-'],
+                'id_usuario': user_id,
+                'data_inicio': values['-START-ROUTER-'],
+                'data_conclusao': values['-END-ROUTER-'],
+                'descricao_chamado': values['-DESC-CHAMADO-ROUTER-'],
+                'data_chamado': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            })
+            sg.popup('Registro de ONU e Roteador realizado com sucesso!')
 
-        elif event == 'Atualizar' and row_idx is not None:
-            updated_values = [values[f'field_{i}'] for i in range(len(headings))]
-            update_data(data[row_idx][0], *updated_values)
-            data = fetch_all_data()
-            window['table_alias'].update(values=data)
-            psg.popup('Registro atualizado com sucesso!', title='Sucesso')
-            window['Dashboard_Section'].update(visible=True)
-            window['Edit_Section'].update(visible=False)
+        # Mostrar Registros ONT
+        elif event == 'Mostrar Registros ONT':
+            cursor.execute('''SELECT r.id_registro, o.vendor, o.modelo, r.data_inicio, r.data_conclusao, r.descricao_chamado 
+                              FROM registro_ont r
+                              JOIN ont o ON r.id_ont = o.id_ont''')
+            registros = cursor.fetchall()
+            window['-TABLE-'].update(registros)
 
-        elif event == 'Excluir_Item' and row_idx is not None:
-            delete_data(data[row_idx][0])
-            data = fetch_all_data()
-            window['table_alias'].update(values=data)
-            psg.popup('Registro excluído com sucesso!', title='Sucesso')
-            window['Dashboard_Section'].update(visible=True)
-            window['Edit_Section'].update(visible=False)
-
-        elif event == 'Exportar_CSV':
-            file_path = psg.popup_get_file('Salvar como', save_as=True, default_extension='.csv', file_types=(("CSV Files", "*.csv"),))
-            if file_path:
-                with open(file_path, mode='w', newline='', encoding='utf-8') as file:
-                    writer = csv.writer(file)
-                    writer.writerow(headings)
-                    writer.writerows(data)
-                psg.popup('Arquivo CSV salvo com sucesso!', title='Sucesso')
+        # Mostrar Registros ONU e Roteador
+        elif event == 'Mostrar Registros ONU e Roteador':
+            cursor.execute('''SELECT r.id_registro, o.vendor, o.modelo, ro.modelo, r.data_inicio, r.data_conclusao, r.descricao_chamado
+                              FROM registro_onu_roteador r
+                              JOIN onu o ON r.id_onu = o.id_onu
+                              JOIN roteador ro ON r.id_roteador = ro.id_roteador''')
+            registros = cursor.fetchall()
+            window['-TABLE-'].update(registros)
 
     window.close()
 
-logged_user = login_window()
-if logged_user:
-    main_window(logged_user)
+# Tela de login
+def login_screen():
+    sg.theme('LightBlue')
+    window = sg.Window('Login', login_layout())
+
+    while True:
+        event, values = window.read()
+        if event == sg.WINDOW_CLOSED:
+            break
+
+        elif event == 'Login':
+            user_id = authenticate_user(values['-LOGIN_USER-'], values['-LOGIN_PASS-'])
+            if user_id:
+                window.close()
+                main(user_id)
+            else:
+                sg.popup('Usuário ou senha inválidos!')
+
+        elif event == 'Cadastrar Usuário':
+            insert_data('usuarios', {
+                'usuario': values['-LOGIN_USER-'],
+                'senha': values['-LOGIN_PASS-']
+            })
+            sg.popup('Usuário cadastrado com sucesso!')
+
+    window.close()
+
+# Inicializar o banco de dados e iniciar a tela de login
+if __name__ == '__main__':
+    create_tables()
+    login_screen()
+    conn.close()
