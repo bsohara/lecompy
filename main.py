@@ -6,15 +6,16 @@ from datetime import datetime
 conn = sqlite3.connect('lecompy_data.db')
 cursor = conn.cursor()
 
-# Criar tabelas no banco de dados
+# Função para criar as tabelas no banco de dados
 def create_tables():
     cursor.execute('''CREATE TABLE IF NOT EXISTS usuarios (
                         id_usuario INTEGER PRIMARY KEY AUTOINCREMENT,
                         usuario TEXT NOT NULL UNIQUE,
                         senha TEXT NOT NULL)''')
 
-    cursor.execute('''CREATE TABLE IF NOT EXISTS ont (
-                        id_ont INTEGER PRIMARY KEY AUTOINCREMENT,
+    cursor.execute('''CREATE TABLE IF NOT EXISTS equipamentos (
+                        id_equipamento INTEGER PRIMARY KEY AUTOINCREMENT,
+                        tipo TEXT,
                         ativo_desktop TEXT,
                         vendor TEXT,
                         modelo TEXT,
@@ -22,46 +23,18 @@ def create_tables():
                         numero_serie TEXT,
                         fsan TEXT)''')
 
-    cursor.execute('''CREATE TABLE IF NOT EXISTS onu (
-                        id_onu INTEGER PRIMARY KEY AUTOINCREMENT,
-                        ativo_desktop TEXT,
-                        vendor TEXT,
-                        modelo TEXT,
-                        mac TEXT,
-                        numero_serie TEXT,
-                        fsan TEXT)''')
-
-    cursor.execute('''CREATE TABLE IF NOT EXISTS roteador (
-                        id_roteador INTEGER PRIMARY KEY AUTOINCREMENT,
-                        ativo_desktop TEXT,
-                        vendor TEXT,
-                        modelo TEXT,
-                        mac TEXT,
-                        numero_serie TEXT)''')
-
-    cursor.execute('''CREATE TABLE IF NOT EXISTS registro_ont (
+    cursor.execute('''CREATE TABLE IF NOT EXISTS registros (
                         id_registro INTEGER PRIMARY KEY AUTOINCREMENT,
-                        id_ont INTEGER,
+                        id_equipamento INTEGER,
                         id_usuario INTEGER,
+                        descricao TEXT,
+                        status TEXT,
                         data_inicio TEXT,
                         data_conclusao TEXT,
-                        descricao_chamado TEXT,
-                        data_chamado TEXT,
-                        FOREIGN KEY (id_ont) REFERENCES ont(id_ont),
-                        FOREIGN KEY (id_usuario) REFERENCES usuarios(id_usuario))''')
-
-    cursor.execute('''CREATE TABLE IF NOT EXISTS registro_onu_roteador (
-                        id_registro INTEGER PRIMARY KEY AUTOINCREMENT,
-                        id_onu INTEGER,
-                        id_roteador INTEGER,
-                        id_usuario INTEGER,
-                        data_inicio TEXT,
-                        data_conclusao TEXT,
-                        descricao_chamado TEXT,
-                        data_chamado TEXT,
-                        FOREIGN KEY (id_onu) REFERENCES onu(id_onu),
-                        FOREIGN KEY (id_roteador) REFERENCES roteador(id_roteador),
-                        FOREIGN KEY (id_usuario) REFERENCES usuarios(id_usuario))''')
+                        modificado_por INTEGER,
+                        FOREIGN KEY (id_equipamento) REFERENCES equipamentos(id_equipamento),
+                        FOREIGN KEY (id_usuario) REFERENCES usuarios(id_usuario),
+                        FOREIGN KEY (modificado_por) REFERENCES usuarios(id_usuario))''')
 
     conn.commit()
 
@@ -75,9 +48,9 @@ def insert_data(table, values):
 
 # Função para autenticar usuário
 def authenticate_user(username, password):
-    cursor.execute("SELECT id_usuario FROM usuarios WHERE usuario = ? AND senha = ?", (username, password))
+    cursor.execute("SELECT id_usuario, usuario FROM usuarios WHERE usuario = ? AND senha = ?", (username, password))
     result = cursor.fetchone()
-    return result[0] if result else None
+    return result if result else None
 
 # Layout para a tela de login
 def login_layout():
@@ -89,63 +62,57 @@ def login_layout():
     return layout
 
 # Layout para o portal principal
-def main_layout():
-    tab1_layout = [
+def main_layout(username):
+    equipment_layout = [
+        [sg.Text('Tipo'), sg.Combo(['ONT', 'ONU', 'Roteador'], key='-TIPO-')],
         [sg.Text('Ativo Desktop'), sg.InputText(key='-DESKTOP-')],
         [sg.Text('Vendor'), sg.InputText(key='-VENDOR-')],
         [sg.Text('Modelo'), sg.InputText(key='-MODEL-')],
         [sg.Text('MAC'), sg.InputText(key='-MAC-')],
         [sg.Text('Número de Série'), sg.InputText(key='-SERIE-')],
         [sg.Text('FSAN'), sg.InputText(key='-FSAN-')],
-        [sg.Button('Cadastrar ONT'), sg.Button('Cadastrar ONU'), sg.Button('Cadastrar Roteador')]
+        [sg.Button('Cadastrar Equipamento')]
     ]
 
-    tab2_layout = [
-        [sg.Text('ID da ONT'), sg.InputText(key='-ONT-ID-')],
+    register_layout = [
+        [sg.Text('Equipamento ID'), sg.InputText(key='-EQUIP_ID-')],
+        [sg.Text('Descrição'), sg.InputText(key='-DESC-')],
+        [sg.Text('Status'), sg.Combo(['Aberto', 'Em Progresso', 'Concluído'], key='-STATUS-')],
         [sg.Text('Data de Início (YYYY-MM-DD)'), sg.InputText(key='-START-')],
         [sg.Text('Data de Conclusão (YYYY-MM-DD)'), sg.InputText(key='-END-')],
-        [sg.Text('Descrição do Chamado LECOM'), sg.InputText(key='-DESC-CHAMADO-')],
-        [sg.Button('Registrar ONT')]
+        [sg.Button('Registrar'), sg.Button('Alterar Registro'), sg.Button('Deletar Registro')]
     ]
 
-    tab3_layout = [
-        [sg.Text('ID da ONU'), sg.InputText(key='-ONU-ID-')],
-        [sg.Text('ID do Roteador'), sg.InputText(key='-ROUTER-ID-')],
-        [sg.Text('Data de Início (YYYY-MM-DD)'), sg.InputText(key='-START-ROUTER-')],
-        [sg.Text('Data de Conclusão (YYYY-MM-DD)'), sg.InputText(key='-END-ROUTER-')],
-        [sg.Text('Descrição do Chamado LECOM'), sg.InputText(key='-DESC-CHAMADO-ROUTER-')],
-        [sg.Button('Registrar ONU e Roteador')]
-    ]
-
-    tab5_layout = [
-        [sg.Text('Consultar Registros')],
-        [sg.Button('Mostrar Registros ONT'), sg.Button('Mostrar Registros ONU e Roteador')],
-        [sg.Table(values=[], headings=['ID', 'Vendor', 'Modelo', 'Data Início', 'Data Conclusão', 'Chamado'],
-                  key='-TABLE-', auto_size_columns=True, display_row_numbers=False)]
+    view_layout = [
+        [sg.Text(f'Usuário logado: {username}', key='-USER-')],
+        [sg.Button('Mostrar Registros')],
+        [sg.Table(values=[], headings=['ID', 'Equipamento ID', 'Descrição', 'Status', 'Início', 'Conclusão', 'Criado por', 'Modificado por'],
+                  key='-REG_TABLE-', enable_events=True, auto_size_columns=True)],
     ]
 
     layout = [
-        [sg.TabGroup([[sg.Tab('Equipamentos', tab1_layout),
-                       sg.Tab('Registro ONT', tab2_layout),
-                       sg.Tab('Registro ONU + Roteador', tab3_layout),
-                       sg.Tab('Consultas', tab5_layout)]])],
+        [sg.TabGroup([
+            [sg.Tab('Visualizar Registros', view_layout),
+            sg.Tab('Cadastrar Equipamento', equipment_layout), 
+            sg.Tab('Gerenciar Registros', register_layout)]
+        ])]
     ]
-    
     return layout
 
 # Janela principal
-def main(user_id):
+def main(user_id, username):
     sg.theme('LightBlue')
-    window = sg.Window('Portal de Gerenciamento', main_layout())
+    window = sg.Window('Portal de Gerenciamento', main_layout(username))
 
     while True:
         event, values = window.read()
         if event == sg.WINDOW_CLOSED:
             break
 
-        # Cadastro de ONT, ONU e Roteador
-        if event == 'Cadastrar ONT':
-            insert_data('ont', {
+        # Cadastro de Equipamento
+        if event == 'Cadastrar Equipamento':
+            insert_data('equipamentos', {
+                'tipo': values['-TIPO-'],
                 'ativo_desktop': values['-DESKTOP-'],
                 'vendor': values['-VENDOR-'],
                 'modelo': values['-MODEL-'],
@@ -153,70 +120,45 @@ def main(user_id):
                 'numero_serie': values['-SERIE-'],
                 'fsan': values['-FSAN-']
             })
-            sg.popup('ONT cadastrada com sucesso!')
+            sg.popup('Equipamento cadastrado com sucesso!')
 
-        elif event == 'Cadastrar ONU':
-            insert_data('onu', {
-                'ativo_desktop': values['-DESKTOP-'],
-                'vendor': values['-VENDOR-'],
-                'modelo': values['-MODEL-'],
-                'mac': values['-MAC-'],
-                'numero_serie': values['-SERIE-'],
-                'fsan': values['-FSAN-']
-            })
-            sg.popup('ONU cadastrada com sucesso!')
-
-        elif event == 'Cadastrar Roteador':
-            insert_data('roteador', {
-                'ativo_desktop': values['-DESKTOP-'],
-                'vendor': values['-VENDOR-'],
-                'modelo': values['-MODEL-'],
-                'mac': values['-MAC-'],
-                'numero_serie': values['-SERIE-']
-            })
-            sg.popup('Roteador cadastrado com sucesso!')
-
-        # Registro ONT
-        elif event == 'Registrar ONT':
-            insert_data('registro_ont', {
-                'id_ont': values['-ONT-ID-'],
+        # Registrar novo registro
+        elif event == 'Registrar':
+            insert_data('registros', {
+                'id_equipamento': values['-EQUIP_ID-'],
                 'id_usuario': user_id,
+                'descricao': values['-DESC-'],
+                'status': values['-STATUS-'],
                 'data_inicio': values['-START-'],
                 'data_conclusao': values['-END-'],
-                'descricao_chamado': values['-DESC-CHAMADO-'],
-                'data_chamado': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                'modificado_por': None
             })
-            sg.popup('Registro de ONT realizado com sucesso!')
+            sg.popup('Registro cadastrado com sucesso!')
 
-        # Registro ONU e Roteador
-        elif event == 'Registrar ONU e Roteador':
-            insert_data('registro_onu_roteador', {
-                'id_onu': values['-ONU-ID-'],
-                'id_roteador': values['-ROUTER-ID-'],
-                'id_usuario': user_id,
-                'data_inicio': values['-START-ROUTER-'],
-                'data_conclusao': values['-END-ROUTER-'],
-                'descricao_chamado': values['-DESC-CHAMADO-ROUTER-'],
-                'data_chamado': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            })
-            sg.popup('Registro de ONU e Roteador realizado com sucesso!')
+        # Alterar um registro existente
+        elif event == 'Alterar Registro':
+            cursor.execute('''UPDATE registros 
+                              SET descricao = ?, status = ?, data_inicio = ?, data_conclusao = ?, modificado_por = ?
+                              WHERE id_registro = ?''', 
+                           (values['-DESC-'], values['-STATUS-'], values['-START-'], values['-END-'], user_id, values['-EQUIP_ID-']))
+            conn.commit()
+            sg.popup('Registro alterado com sucesso!')
 
-        # Mostrar Registros ONT
-        elif event == 'Mostrar Registros ONT':
-            cursor.execute('''SELECT r.id_registro, o.vendor, o.modelo, r.data_inicio, r.data_conclusao, r.descricao_chamado 
-                              FROM registro_ont r
-                              JOIN ont o ON r.id_ont = o.id_ont''')
+        # Deletar um registro existente
+        elif event == 'Deletar Registro':
+            cursor.execute('DELETE FROM registros WHERE id_registro = ?', (values['-EQUIP_ID-'],))
+            conn.commit()
+            sg.popup('Registro deletado com sucesso!')
+
+        # Mostrar registros
+        elif event == 'Mostrar Registros':
+            cursor.execute('''SELECT r.id_registro, r.id_equipamento, r.descricao, r.status, r.data_inicio, r.data_conclusao,
+                                     u.usuario AS criado_por, um.usuario AS modificado_por
+                              FROM registros r
+                              JOIN usuarios u ON r.id_usuario = u.id_usuario
+                              LEFT JOIN usuarios um ON r.modificado_por = um.id_usuario''')
             registros = cursor.fetchall()
-            window['-TABLE-'].update(registros)
-
-        # Mostrar Registros ONU e Roteador
-        elif event == 'Mostrar Registros ONU e Roteador':
-            cursor.execute('''SELECT r.id_registro, o.vendor, o.modelo, ro.modelo, r.data_inicio, r.data_conclusao, r.descricao_chamado
-                              FROM registro_onu_roteador r
-                              JOIN onu o ON r.id_onu = o.id_onu
-                              JOIN roteador ro ON r.id_roteador = ro.id_roteador''')
-            registros = cursor.fetchall()
-            window['-TABLE-'].update(registros)
+            window['-REG_TABLE-'].update(registros)
 
     window.close()
 
@@ -231,10 +173,11 @@ def login_screen():
             break
 
         elif event == 'Login':
-            user_id = authenticate_user(values['-LOGIN_USER-'], values['-LOGIN_PASS-'])
-            if user_id:
+            user_data = authenticate_user(values['-LOGIN_USER-'], values['-LOGIN_PASS-'])
+            if user_data:
+                user_id, username = user_data
                 window.close()
-                main(user_id)
+                main(user_id, username)
             else:
                 sg.popup('Usuário ou senha inválidos!')
 
