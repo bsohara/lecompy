@@ -1,5 +1,4 @@
 import sqlite3
-import tabulate
 import PySimpleGUI as sg
 from datetime import datetime
 
@@ -42,8 +41,8 @@ def create_tables():
                         FOREIGN KEY (modificado_por) REFERENCES usuarios(id_usuario))''')
 
     # Adicionar índices
-    cursor.execute("CREATE INDEX idx_registros_id_equipamento ON registros(id_equipamento)")
-    cursor.execute("CREATE INDEX idx_registros_id_usuario ON registros(id_usuario)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_registros_id_equipamento ON registros(id_equipamento)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_registros_id_usuario ON registros(id_usuario)")
 
     conn.commit()
 
@@ -72,28 +71,53 @@ def login_layout():
     ]
     return layout
 
-# Layout para o portal principal
+# Função para exibir registros na tabela
+def show_registros(window):
+    cursor.execute('''SELECT r.id_registro, e.tipo AS equipamento, e.ativo_desktop AS ativo, e.fsan, r.descricao, r.status, r.data_inicio, r.data_conclusao
+                      FROM registros r
+                      JOIN equipamentos e ON r.id_equipamento = e.id_equipamento''')
+    registros = cursor.fetchall()
+    window['-TABLE-'].update(values=registros, headings=['ID', 'Equipamento', 'Ativo', 'FSAN', 'Descrição', 'Status', 'Data Início', 'Data Fim'])
+
+# Função para exibir equipamentos na tabela
+def show_equipamentos(window):
+    cursor.execute('''SELECT e.id_equipamento, e.tipo AS equipamento, e.modelo, e.status, r.data_inicio, r.data_conclusao 
+                      FROM equipamentos e
+                      LEFT JOIN registros r ON e.id_equipamento = r.id_equipamento''')
+    equipamentos = cursor.fetchall()
+    window['-TABLE-'].update(values=equipamentos, headings=['ID', 'Equipamento', 'Modelo', 'Status', 'Data Início', 'Data Fim'])
+
+# Função para gerar layout das abas
 def main_layout(username):
-    left_column = [
+    # Layout para a aba de Visualização
+    tab1_layout = [
         [sg.Button('Visualizar Registros')],
-        [sg.Button('Cadastrar Equipamento')],
-        [sg.Button('Gerenciar Registros')],
-        [sg.Button('Logout')]
+        [sg.Button('Visualizar Equipamentos')],
+        [sg.Table(values=[], headings=[], key='-TABLE-')]
     ]
-
-    right_column = [
-        [sg.Text(f'Usuário logado: {username}')],
-        [sg.Multiline(size=(40, 20), key='-OUTPUT-')]
+    
+    # Layout para a aba de Cadastro
+    tab2_layout = [
+        [sg.Button('Cadastrar Chamado')],
+        [sg.Button('Cadastrar Equipamento')]
     ]
-
+    
+    # Layout para a aba de Alteração
+    tab3_layout = [
+        [sg.Button('Alterar Registro')]
+    ]
+    
+    # Layout com as abas
     layout = [
-        [sg.Column(left_column, element_justification='left'),
-         sg.VSeparator(),
-         sg.Column(right_column, element_justification='right')]
+        [sg.TabGroup([
+            [sg.Tab('Visualização', tab1_layout),
+             sg.Tab('Cadastro', tab2_layout),
+             sg.Tab('Alteração', tab3_layout)]
+        ])],
     ]
     return layout
 
-# Janela principal
+# Janela principal com abas
 def main(user_id, username):
     sg.theme('LightBlue')
     window = sg.Window('Portal de Gerenciamento', main_layout(username))
@@ -103,20 +127,45 @@ def main(user_id, username):
         if event == sg.WINDOW_CLOSED:
             break
 
-        if event == 'Logout':
-            window.close()
-            login_screen()
-
+        # Visualizar Registros
         if event == 'Visualizar Registros':
-            cursor.execute('''SELECT r.id_registro, r.id_equipamento, r.descricao, r.status, r.data_inicio, r.data_conclusao,
-                                     u.usuario AS criado_por, um.usuario AS modificado_por
-                              FROM registros r
-                              JOIN usuarios u ON r.id_usuario = u.id_usuario
-                              LEFT JOIN usuarios um ON r.modificado_por = um.id_usuario''')
-            registros = cursor.fetchall()
-            output = tabulate.tabulate(registros, headers=['ID Registro', 'ID Equipamento', 'Descrição', 'Status', 'Data Início', 'Data Conclusão', 'Criado por', 'Modificado por'], tablefmt='grid')
-            window['-OUTPUT-'].update(output)
+            show_registros(window)
 
+        # Visualizar Equipamentos
+        if event == 'Visualizar Equipamentos':
+            show_equipamentos(window)
+
+        # Cadastrar Chamado
+        if event == 'Cadastrar Chamado':
+            chamado_window = sg.Window('Cadastrar Chamado', [
+                [sg.Text('Equipamento ID'), sg.InputText(key='-EQUIP_ID-')],
+                [sg.Text('Descrição'), sg.InputText(key='-DESC-')],
+                [sg.Text('Status'), sg.Combo(['Aberto', 'Em Progresso', 'Concluído'], key='-STATUS-')],
+                [sg.Text('Data de Início (YYYY-MM-DD)'), sg.InputText(key='-START-')],
+                [sg.Text('Data de Conclusão (YYYY-MM-DD)'), sg.InputText(key='-END-')],
+                [sg.Button('Salvar'), sg.Button('Cancelar')]
+            ])
+            
+            while True:
+                ev, vals = chamado_window.read()
+                if ev == 'Salvar':
+                    insert_data('registros', {
+                        'id_equipamento': vals['-EQUIP_ID-'],
+                        'id_usuario': user_id,
+                        'descricao': vals['-DESC-'],
+                        'status': vals['-STATUS-'],
+                        'data_inicio': vals['-START-'],
+                        'data_conclusao': vals['-END-'],
+                        'modificado_por': None
+                    })
+                    sg.popup('Chamado cadastrado com sucesso!')
+                    chamado_window.close()
+                    break
+                elif ev == 'Cancelar' or ev == sg.WINDOW_CLOSED:
+                    chamado_window.close()
+                    break
+
+        # Cadastrar Equipamento
         if event == 'Cadastrar Equipamento':
             equip_window = sg.Window('Cadastrar Equipamento', [
                 [sg.Text('Tipo'), sg.Combo(['ONT', 'ONU', 'Roteador'], key='-TIPO-')],
@@ -148,41 +197,29 @@ def main(user_id, username):
                     equip_window.close()
                     break
 
-        if event == 'Gerenciar Registros':
-            reg_window = sg.Window('Gerenciar Registros', [
-                [sg.Text('Equipamento ID'), sg.InputText(key='-EQUIP_ID-')],
+        # Alterar Registro
+        if event == 'Alterar Registro':
+            reg_window = sg.Window('Alterar Registro', [
+                [sg.Text('ID do Registro'), sg.InputText(key='-REG_ID-')],
                 [sg.Text('Descrição'), sg.InputText(key='-DESC-')],
                 [sg.Text('Status'), sg.Combo(['Aberto', 'Em Progresso', 'Concluído'], key='-STATUS-')],
                 [sg.Text('Data de Início (YYYY-MM-DD)'), sg.InputText(key='-START-')],
                 [sg.Text('Data de Conclusão (YYYY-MM-DD)'), sg.InputText(key='-END-')],
-                [sg.Button('Registrar'), sg.Button('Alterar'), sg.Button('Deletar')]
+                [sg.Button('Alterar'), sg.Button('Cancelar')]
             ])
-
+            
             while True:
                 reg_ev, reg_vals = reg_window.read()
-                if reg_ev == 'Registrar':
-                    insert_data('registros', {
-                        'id_equipamento': reg_vals['-EQUIP_ID-'],
-                        'id_usuario': user_id,
-                        'descricao': reg_vals['-DESC-'],
-                        'status': reg_vals['-STATUS-'],
-                        'data_inicio': reg_vals['-START-'],
-                        'data_conclusao': reg_vals['-END-'],
-                        'modificado_por': None
-                    })
-                    sg.popup('Registro cadastrado com sucesso!')
-                elif reg_ev == 'Alterar':
+                if reg_ev == 'Alterar':
                     cursor.execute('''UPDATE registros 
                                       SET descricao = ?, status = ?, data_inicio = ?, data_conclusao = ?, modificado_por = ?
                                       WHERE id_registro = ?''', 
-                                   (reg_vals['-DESC-'], reg_vals['-STATUS-'], reg_vals['-START-'], reg_vals['-END-'], user_id, reg_vals['-EQUIP_ID-']))
+                                   (reg_vals['-DESC-'], reg_vals['-STATUS-'], reg_vals['-START-'], reg_vals['-END-'], user_id, reg_vals['-REG_ID-']))
                     conn.commit()
                     sg.popup('Registro alterado com sucesso!')
-                elif reg_ev == 'Deletar':
-                    cursor.execute('DELETE FROM registros WHERE id_registro = ?', (reg_vals['-EQUIP_ID-'],))
-                    conn.commit()
-                    sg.popup('Registro deletado com sucesso!')
-                elif reg_ev == sg.WINDOW_CLOSED:
+                    reg_window.close()
+                    break
+                elif reg_ev == 'Cancelar' or reg_ev == sg.WINDOW_CLOSED:
                     reg_window.close()
                     break
 
