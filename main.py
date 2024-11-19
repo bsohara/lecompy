@@ -10,7 +10,7 @@ except sqlite3.Error as e:
     print(f"Erro ao conectar ao banco de dados: {e}")
     exit(1)
 
-# Função para criar as tabelas no banco de dados
+# Função para criar as tabelas e views no banco de dados
 def create_tables():
     cursor.execute('''CREATE TABLE IF NOT EXISTS usuarios (
                         id_usuario INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -44,6 +44,18 @@ def create_tables():
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_registros_id_equipamento ON registros(id_equipamento)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_registros_id_usuario ON registros(id_usuario)")
 
+    # Criar views
+    cursor.execute('''CREATE VIEW IF NOT EXISTS vw_registros AS
+                      SELECT r.id_registro, e.tipo AS equipamento, e.ativo_desktop AS ativo, e.fsan, 
+                             r.descricao, r.status, r.data_inicio, r.data_conclusao
+                      FROM registros r
+                      JOIN equipamentos e ON r.id_equipamento = e.id_equipamento''')
+
+    cursor.execute('''CREATE VIEW IF NOT EXISTS vw_equipamentos AS
+                      SELECT e.id_equipamento, e.tipo AS equipamento, e.modelo, e.vendor, 
+                             e.mac, e.numero_serie, e.fsan
+                      FROM equipamentos e''')
+
     conn.commit()
 
 # Função para inserir dados nas tabelas
@@ -73,19 +85,15 @@ def login_layout():
 
 # Função para exibir registros na tabela
 def show_registros(window):
-    cursor.execute('''SELECT r.id_registro, e.tipo AS equipamento, e.ativo_desktop AS ativo, e.fsan, r.descricao, r.status, r.data_inicio, r.data_conclusao
-                      FROM registros r
-                      JOIN equipamentos e ON r.id_equipamento = e.id_equipamento''')
+    cursor.execute('SELECT * FROM vw_registros')
     registros = cursor.fetchall()
     window['-TABLE-'].update(values=registros, headings=['ID', 'Equipamento', 'Ativo', 'FSAN', 'Descrição', 'Status', 'Data Início', 'Data Fim'])
 
 # Função para exibir equipamentos na tabela
 def show_equipamentos(window):
-    cursor.execute('''SELECT e.id_equipamento, e.tipo AS equipamento, e.modelo, e.status, r.data_inicio, r.data_conclusao 
-                      FROM equipamentos e
-                      LEFT JOIN registros r ON e.id_equipamento = r.id_equipamento''')
+    cursor.execute('SELECT * FROM vw_equipamentos')
     equipamentos = cursor.fetchall()
-    window['-TABLE-'].update(values=equipamentos, headings=['ID', 'Equipamento', 'Modelo', 'Status', 'Data Início', 'Data Fim'])
+    window['-TABLE-'].update(values=equipamentos, headings=['ID', 'Equipamento', 'Modelo', 'Vendor', 'MAC', 'Número de Série', 'FSAN'])
 
 # Função para gerar layout das abas
 def main_layout(username):
@@ -96,26 +104,83 @@ def main_layout(username):
         [sg.Table(values=[], headings=[], key='-TABLE-')]
     ]
     
-    # Layout para a aba de Cadastro
+    # Layout para a aba de Cadastro/Alteração de Registros
     tab2_layout = [
-        [sg.Button('Cadastrar Chamado')],
-        [sg.Button('Cadastrar Equipamento')]
+        [sg.Text('Cadastrar Registro')],
+        [sg.Text('Equipamento ID'), sg.InputText(key=' -EQUIP_ID_REG-')],
+        [sg.Text('Descrição'), sg.InputText(key='-DESC_REG-')],
+        [sg.Text('Status'), sg.Combo(['Solicitado', 'Montado', 'Desmontado e finalizado'], key='-STATUS_REG-')],
+        [sg.Text('Data de Início (YYYY-MM-DD)'), sg.InputText(key='-START_REG-')],
+        [sg.Text('Data de Conclusão (YYYY-MM-DD)'), sg.InputText(key='-END_REG-')],
+        [sg.Button('Salvar Registro'), sg.Button('Alterar Registro')]
     ]
-    
-    # Layout para a aba de Alteração
+
+    # Layout para a aba de Cadastro/Alteração de Equipamentos
     tab3_layout = [
-        [sg.Button('Alterar Registro')]
+        [sg.Text('Cadastrar Equipamento')],
+        [sg.Text('Tipo'), sg.Combo(['ONT', 'ONU', 'Roteador'], key='-TIPO_EQUIP-')],
+        [sg.Text('Ativo Desktop'), sg.InputText(key='-DESKTOP_EQUIP-')],
+        [sg.Text('Vendor'), sg.InputText(key='-VENDOR_EQUIP-')],
+        [sg.Text('Modelo'), sg.InputText(key='-MODEL_EQUIP-')],
+        [sg.Text('MAC'), sg.InputText(key='-MAC_EQUIP-')],
+        [sg.Text('Número de Série'), sg.InputText(key='-SERIE_EQUIP-')],
+        [sg.Text('FSAN'), sg.InputText(key='-FSAN_EQUIP-')],
+        [sg.Button('Salvar Equipamento'), sg.Button('Alterar Equipamento')]
     ]
-    
+
     # Layout com as abas
     layout = [
         [sg.TabGroup([
             [sg.Tab('Visualização', tab1_layout),
-             sg.Tab('Cadastro', tab2_layout),
-             sg.Tab('Alteração', tab3_layout)]
-        ])],
+             sg.Tab('Cadastro/Alteração Registros', tab2_layout),
+             sg.Tab('Cadastro/Alteração Equipamentos', tab3_layout)]
+        ])]
     ]
     return layout
+
+# Função para salvar registro
+def save_registro(user_id, equip_id, descricao, status, data_inicio, data_conclusao):
+    insert_data('registros', {
+        'id_equipamento': equip_id,
+        'id_usuario': user_id,
+        'descricao': descricao,
+        'status': status,
+        'data_inicio': data_inicio,
+        'data_conclusao': data_conclusao,
+        'modificado_por': None
+    })
+    sg.popup('Registro cadastrado com sucesso!')
+
+# Função para atualizar registro
+def update_registro(user_id, reg_id, descricao, status, data_inicio, data_conclusao):
+    cursor.execute('''UPDATE registros 
+                      SET descricao = ?, status = ?, data_inicio = ?, data_conclusao = ?, modificado_por = ?
+                      WHERE id_registro = ?''', 
+                   (descricao, status, data_inicio, data_conclusao, user_id, reg_id))
+    conn.commit()
+    sg.popup('Registro alterado com sucesso!')
+
+# Função para salvar equipamento
+def save_equipamento(tipo, ativo_desktop, vendor, modelo, mac, numero_serie, fsan):
+    insert_data('equipamentos', {
+        'tipo': tipo,
+        'ativo_desktop': ativo_desktop,
+        'vendor': vendor,
+        'modelo': modelo,
+        'mac': mac,
+        'numero_serie': numero_serie,
+        'fsan': fsan
+    })
+    sg.popup('Equipamento cadastrado com sucesso!')
+
+# Função para atualizar equipamento
+def update_equipamento(equip_id, tipo, ativo_desktop, vendor, modelo, mac, numero_serie, fsan):
+    cursor.execute('''UPDATE equipamentos 
+                      SET tipo = ?, ativo_desktop = ?, vendor = ?, modelo = ?, mac = ?, numero_serie = ?, fsan = ?
+                      WHERE id_equipamento = ?''', 
+                   (tipo, ativo_desktop, vendor, modelo, mac, numero_serie, fsan, equip_id))
+    conn.commit()
+    sg.popup('Equipamento alterado com sucesso!')
 
 # Janela principal com abas
 def main(user_id, username):
@@ -135,93 +200,22 @@ def main(user_id, username):
         if event == 'Visualizar Equipamentos':
             show_equipamentos(window)
 
-        # Cadastrar Chamado
-        if event == 'Cadastrar Chamado':
-            chamado_window = sg.Window('Cadastrar Chamado', [
-                [sg.Text('Equipamento ID'), sg.InputText(key='-EQUIP_ID-')],
-                [sg.Text('Descrição'), sg.InputText(key='-DESC-')],
-                [sg.Text('Status'), sg.Combo(['Aberto', 'Em Progresso', 'Concluído'], key='-STATUS-')],
-                [sg.Text('Data de Início (YYYY-MM-DD)'), sg.InputText(key='-START-')],
-                [sg.Text('Data de Conclusão (YYYY-MM-DD)'), sg.InputText(key='-END-')],
-                [sg.Button('Salvar'), sg.Button('Cancelar')]
-            ])
-            
-            while True:
-                ev, vals = chamado_window.read()
-                if ev == 'Salvar':
-                    insert_data('registros', {
-                        'id_equipamento': vals['-EQUIP_ID-'],
-                        'id_usuario': user_id,
-                        'descricao': vals['-DESC-'],
-                        'status': vals['-STATUS-'],
-                        'data_inicio': vals['-START-'],
-                        'data_conclusao': vals['-END-'],
-                        'modificado_por': None
-                    })
-                    sg.popup('Chamado cadastrado com sucesso!')
-                    chamado_window.close()
-                    break
-                elif ev == 'Cancelar' or ev == sg.WINDOW_CLOSED:
-                    chamado_window.close()
-                    break
+        # Salvar Registro
+        if event == 'Salvar Registro':
+            save_registro(user_id, values['-EQUIP_ID_REG-'], values['-DESC_REG-'], values['-STATUS_REG-'], values['-START_REG-'], values['-END_REG-'])
 
-        # Cadastrar Equipamento
-        if event == 'Cadastrar Equipamento':
-            equip_window = sg.Window('Cadastrar Equipamento', [
-                [sg.Text('Tipo'), sg.Combo(['ONT', 'ONU', 'Roteador'], key='-TIPO-')],
-                [sg.Text('Ativo Desktop'), sg.InputText(key='-DESKTOP-')],
-                [sg.Text('Vendor'), sg.InputText(key='-VENDOR-')],
-                [sg.Text('Modelo'), sg.InputText(key='-MODEL-')],
-                [sg.Text('MAC'), sg.InputText(key='-MAC-')],
-                [sg.Text('Número de Série'), sg.InputText(key='-SERIE-')],
-                [sg.Text('FSAN'), sg.InputText(key='-FSAN-')],
-                [sg.Button('Salvar'), sg.Button('Cancelar')]
-            ])
-            
-            while True:
-                ev, vals = equip_window.read()
-                if ev == 'Salvar':
-                    insert_data('equipamentos', {
-                        'tipo': vals['-TIPO-'],
-                        'ativo_desktop': vals['-DESKTOP-'],
-                        'vendor': vals['-VENDOR-'],
-                        'modelo': vals['-MODEL-'],
-                        'mac': vals['-MAC-'],
-                        'numero_serie': vals['-SERIE-'],
-                        'fsan': vals['-FSAN-']
-                    })
-                    sg.popup('Equipamento cadastrado com sucesso!')
-                    equip_window.close()
-                    break
-                elif ev == 'Cancelar' or ev == sg.WINDOW_CLOSED:
-                    equip_window.close()
-                    break
-
+        # ```python
         # Alterar Registro
         if event == 'Alterar Registro':
-            reg_window = sg.Window('Alterar Registro', [
-                [sg.Text('ID do Registro'), sg.InputText(key='-REG_ID-')],
-                [sg.Text('Descrição'), sg.InputText(key='-DESC-')],
-                [sg.Text('Status'), sg.Combo(['Aberto', 'Em Progresso', 'Concluído'], key='-STATUS-')],
-                [sg.Text('Data de Início (YYYY-MM-DD)'), sg.InputText(key='-START-')],
-                [sg.Text('Data de Conclusão (YYYY-MM-DD)'), sg.InputText(key='-END-')],
-                [sg.Button('Alterar'), sg.Button('Cancelar')]
-            ])
-            
-            while True:
-                reg_ev, reg_vals = reg_window.read()
-                if reg_ev == 'Alterar':
-                    cursor.execute('''UPDATE registros 
-                                      SET descricao = ?, status = ?, data_inicio = ?, data_conclusao = ?, modificado_por = ?
-                                      WHERE id_registro = ?''', 
-                                   (reg_vals['-DESC-'], reg_vals['-STATUS-'], reg_vals['-START-'], reg_vals['-END-'], user_id, reg_vals['-REG_ID-']))
-                    conn.commit()
-                    sg.popup('Registro alterado com sucesso!')
-                    reg_window.close()
-                    break
-                elif reg_ev == 'Cancelar' or reg_ev == sg.WINDOW_CLOSED:
-                    reg_window.close()
-                    break
+            update_registro(user_id, values['-REG_ID-'], values['-DESC_REG-'], values['-STATUS_REG-'], values['-START_REG-'], values['-END_REG-'])
+
+        # Salvar Equipamento
+        if event == 'Salvar Equipamento':
+            save_equipamento(values['-TIPO_EQUIP-'], values['-DESKTOP_EQUIP-'], values['-VENDOR_EQUIP-'], values['-MODEL_EQUIP-'], values['-MAC_EQUIP-'], values['-SERIE_EQUIP-'], values['-FSAN_EQUIP-'])
+
+        # Alterar Equipamento
+        if event == 'Alterar Equipamento':
+            update_equipamento(values['-EQUIP_ID-'], values['-TIPO_EQUIP-'], values['-DESKTOP_EQUIP-'], values['-VENDOR_EQUIP-'], values['-MODEL_EQUIP-'], values['-MAC_EQUIP-'], values['-SERIE_EQUIP-'], values['-FSAN_EQUIP-'])
 
     window.close()
 
