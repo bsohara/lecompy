@@ -2,253 +2,380 @@ import sqlite3
 import PySimpleGUI as sg
 from datetime import datetime
 
-# Conectar ao banco de dados SQLite
-try:
-    conn = sqlite3.connect('lecompy_data.db')
-    cursor = conn.cursor()
-except sqlite3.Error as e:
-    print(f"Erro ao conectar ao banco de dados: {e}")
-    exit(1)
+# Função para criar o banco de dados e as tabelas
+def create_database():
+    connection = sqlite3.connect("lecompy_data.db")
+    cursor = connection.cursor()
 
-# Função para criar as tabelas e views no banco de dados
-def create_tables():
-    cursor.execute('''CREATE TABLE IF NOT EXISTS usuarios (
-                        id_usuario INTEGER PRIMARY KEY AUTOINCREMENT,
-                        usuario TEXT NOT NULL UNIQUE,
-                        senha TEXT NOT NULL)''')
+    # Tabela de usuários
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT NOT NULL UNIQUE,
+        password TEXT NOT NULL
+    )
+    """)
 
-    cursor.execute('''CREATE TABLE IF NOT EXISTS equipamentos (
-                        id_equipamento INTEGER PRIMARY KEY AUTOINCREMENT,
-                        tipo TEXT,
-                        ativo_desktop TEXT,
-                        vendor TEXT,
-                        modelo TEXT,
-                        mac TEXT,
-                        numero_serie TEXT,
-                        fsan TEXT)''')
+    # Tabela de equipamentos
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS equipamentos (
+        id_equipamento INTEGER PRIMARY KEY AUTOINCREMENT,
+        ativo TEXT NOT NULL,
+        vendor TEXT NOT NULL,
+        modelo TEXT NOT NULL,
+        tipo TEXT CHECK(tipo IN ('ONU', 'ONT', 'roteador')) NOT NULL,
+        mac TEXT NOT NULL,
+        numero_serie TEXT NOT NULL,
+        fsan TEXT NOT NULL
+    )
+    """)
 
-    cursor.execute('''CREATE TABLE IF NOT EXISTS registros (
-                        id_registro INTEGER PRIMARY KEY AUTOINCREMENT,
-                        id_equipamento INTEGER,
-                        id_usuario INTEGER,
-                        descricao TEXT,
-                        status TEXT,
-                        data_inicio DATE,
-                        data_conclusao DATE,
-                        modificado_por INTEGER,
-                        FOREIGN KEY (id_equipamento) REFERENCES equipamentos(id_equipamento),
-                        FOREIGN KEY (id_usuario) REFERENCES usuarios(id_usuario),
-                        FOREIGN KEY (modificado_por) REFERENCES usuarios(id_usuario))''')
+    # Tabela de registros de chamados
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS registros (
+        id_registro INTEGER PRIMARY KEY AUTOINCREMENT,
+        id_equipamento INTEGER NOT NULL,
+        chamado_lecom TEXT NOT NULL,
+        data_inicio DATE,
+        data_conclusao DATE,
+        status TEXT CHECK(status IN ('Solicitado', 'Montado', 'Desmontado')) NOT NULL,
+        responsavel TEXT NOT NULL,
+        modificado_por TEXT,
+        FOREIGN KEY (id_equipamento) REFERENCES equipamentos (id_equipamento)
+    )
+    """)
 
-    # Adicionar índices
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_registros_id_equipamento ON registros(id_equipamento)")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_registros_id_usuario ON registros(id_usuario)")
+    connection.commit()
+    connection.close()
 
-    # Criar views
-    cursor.execute('''CREATE VIEW IF NOT EXISTS vw_registros AS
-                      SELECT r.id_registro, e.tipo AS equipamento, e.ativo_desktop AS ativo, e.fsan, 
-                             r.descricao, r.status, r.data_inicio, r.data_conclusao
-                      FROM registros r
-                      JOIN equipamentos e ON r.id_equipamento = e.id_equipamento''')
+# Criar banco de dados
+create_database()
 
-    cursor.execute('''CREATE VIEW IF NOT EXISTS vw_equipamentos AS
-                      SELECT e.id_equipamento, e.tipo AS equipamento, e.modelo, e.vendor, 
-                             e.mac, e.numero_serie, e.fsan
-                      FROM equipamentos e''')
+# Função para registrar um novo usuário
+def register_user(username, password):
+    connection = sqlite3.connect("lecompy_data.db")
+    cursor = connection.cursor()
 
-    conn.commit()
-
-# Função para inserir dados nas tabelas
-def insert_data(table, values):
-    columns = ', '.join(values.keys())
-    placeholders = ', '.join(['?'] * len(values))
-    sql = f'INSERT INTO {table} ({columns}) VALUES ({placeholders})'
     try:
-        cursor.execute(sql, tuple(values.values()))
-        conn.commit()
-    except sqlite3.IntegrityError as e:
-        print(f"Erro ao inserir dados: {e}")
+        cursor.execute("INSERT INTO users (username, password) VALUES (?, ?)", (username, password))
+        connection.commit()
+        sg.popup("Usuário registrado com sucesso!", title="Sucesso")
+    except sqlite3.IntegrityError:
+        sg.popup_error("O nome de usuário já existe!", title="Erro")
+    finally:
+        connection.close()
 
 # Função para autenticar usuário
 def authenticate_user(username, password):
-    cursor.execute("SELECT id_usuario, usuario FROM usuarios WHERE usuario =? AND senha =?", (username, password))
-    return cursor.fetchone()
+    connection = sqlite3.connect("lecompy_data.db")
+    cursor = connection.cursor()
 
-# Layout para a tela de login
-def login_layout():
-    layout = [
-        [sg.Text('Usuário'), sg.InputText(key='-LOGIN_USER-')],
-        [sg.Text('Senha'), sg.InputText(key='-LOGIN_PASS-', password_char='*')],
-        [sg.Button('Login'), sg.Button('Cadastrar Usuário')]
-    ]
-    return layout
+    cursor.execute("SELECT * FROM users WHERE username = ? AND password = ?", (username, password))
+    user = cursor.fetchone()
+    connection.close()
 
-# Função para exibir registros na tabela
-def show_registros(window):
-    cursor.execute('SELECT * FROM vw_registros')
-    registros = cursor.fetchall()
-    window['-TABLE-'].update(values=registros, headings=['ID', 'Equipamento', 'Ativo', 'FSAN', 'Descrição', 'Status', 'Data Início', 'Data Fim'])
+    return user
 
-# Função para exibir equipamentos na tabela
-def show_equipamentos(window):
-    cursor.execute('SELECT * FROM vw_equipamentos')
-    equipamentos = cursor.fetchall()
-    window['-TABLE-'].update(values=equipamentos, headings=['ID', 'Equipamento', 'Modelo', 'Vendor', 'MAC', 'Número de Série', 'FSAN'])
-
-# Função para gerar layout das abas
-def main_layout(username):
-    # Layout para a aba de Visualização
-    tab1_layout = [
-        [sg.Button('Visualizar Registros')],
-        [sg.Button('Visualizar Equipamentos')],
-        [sg.Table(values=[], headings=[], key='-TABLE-')]
-    ]
-    
-    # Layout para a aba de Cadastro/Alteração de Registros
-    tab2_layout = [
-        [sg.Text('Cadastrar Registro')],
-        [sg.Text('Equipamento ID'), sg.InputText(key=' -EQUIP_ID_REG-')],
-        [sg.Text('Descrição'), sg.InputText(key='-DESC_REG-')],
-        [sg.Text('Status'), sg.Combo(['Solicitado', 'Montado', 'Desmontado e finalizado'], key='-STATUS_REG-')],
-        [sg.Text('Data de Início (YYYY-MM-DD)'), sg.InputText(key='-START_REG-')],
-        [sg.Text('Data de Conclusão (YYYY-MM-DD)'), sg.InputText(key='-END_REG-')],
-        [sg.Button('Salvar Registro'), sg.Button('Alterar Registro')]
-    ]
-
-    # Layout para a aba de Cadastro/Alteração de Equipamentos
-    tab3_layout = [
-        [sg.Text('Cadastrar Equipamento')],
-        [sg.Text('Tipo'), sg.Combo(['ONT', 'ONU', 'Roteador'], key='-TIPO_EQUIP-')],
-        [sg.Text('Ativo Desktop'), sg.InputText(key='-DESKTOP_EQUIP-')],
-        [sg.Text('Vendor'), sg.InputText(key='-VENDOR_EQUIP-')],
-        [sg.Text('Modelo'), sg.InputText(key='-MODEL_EQUIP-')],
-        [sg.Text('MAC'), sg.InputText(key='-MAC_EQUIP-')],
-        [sg.Text('Número de Série'), sg.InputText(key='-SERIE_EQUIP-')],
-        [sg.Text('FSAN'), sg.InputText(key='-FSAN_EQUIP-')],
-        [sg.Button('Salvar Equipamento'), sg.Button('Alterar Equipamento')]
-    ]
-
-    # Layout com as abas
-    layout = [
-        [sg.TabGroup([
-            [sg.Tab('Visualização', tab1_layout),
-             sg.Tab('Cadastro/Alteração Registros', tab2_layout),
-             sg.Tab('Cadastro/Alteração Equipamentos', tab3_layout)]
-        ])]
-    ]
-    return layout
-
-# Função para salvar registro
-def save_registro(user_id, equip_id, descricao, status, data_inicio, data_conclusao):
-    insert_data('registros', {
-        'id_equipamento': equip_id,
-        'id_usuario': user_id,
-        'descricao': descricao,
-        'status': status,
-        'data_inicio': data_inicio,
-        'data_conclusao': data_conclusao,
-        'modificado_por': None
-    })
-    sg.popup('Registro cadastrado com sucesso!')
-
-# Função para atualizar registro
-def update_registro(user_id, reg_id, descricao, status, data_inicio, data_conclusao):
-    cursor.execute('''UPDATE registros 
-                      SET descricao = ?, status = ?, data_inicio = ?, data_conclusao = ?, modificado_por = ?
-                      WHERE id_registro = ?''', 
-                   (descricao, status, data_inicio, data_conclusao, user_id, reg_id))
-    conn.commit()
-    sg.popup('Registro alterado com sucesso!')
-
-# Função para salvar equipamento
-def save_equipamento(tipo, ativo_desktop, vendor, modelo, mac, numero_serie, fsan):
-    insert_data('equipamentos', {
-        'tipo': tipo,
-        'ativo_desktop': ativo_desktop,
-        'vendor': vendor,
-        'modelo': modelo,
-        'mac': mac,
-        'numero_serie': numero_serie,
-        'fsan': fsan
-    })
-    sg.popup('Equipamento cadastrado com sucesso!')
-
-# Função para atualizar equipamento
-def update_equipamento(equip_id, tipo, ativo_desktop, vendor, modelo, mac, numero_serie, fsan):
-    cursor.execute('''UPDATE equipamentos 
-                      SET tipo = ?, ativo_desktop = ?, vendor = ?, modelo = ?, mac = ?, numero_serie = ?, fsan = ?
-                      WHERE id_equipamento = ?''', 
-                   (tipo, ativo_desktop, vendor, modelo, mac, numero_serie, fsan, equip_id))
-    conn.commit()
-    sg.popup('Equipamento alterado com sucesso!')
-
-# Janela principal com abas
-def main(user_id, username):
-    sg.theme('LightBlue')
-    window = sg.Window('Portal de Gerenciamento', main_layout(username))
-
-    while True:
-        event, values = window.read()
-        if event == sg.WINDOW_CLOSED:
-            break
-
-        # Visualizar Registros
-        if event == 'Visualizar Registros':
-            show_registros(window)
-
-        # Visualizar Equipamentos
-        if event == 'Visualizar Equipamentos':
-            show_equipamentos(window)
-
-        # Salvar Registro
-        if event == 'Salvar Registro':
-            save_registro(user_id, values['-EQUIP_ID_REG-'], values['-DESC_REG-'], values['-STATUS_REG-'], values['-START_REG-'], values['-END_REG-'])
-
-        # ```python
-        # Alterar Registro
-        if event == 'Alterar Registro':
-            update_registro(user_id, values['-REG_ID-'], values['-DESC_REG-'], values['-STATUS_REG-'], values['-START_REG-'], values['-END_REG-'])
-
-        # Salvar Equipamento
-        if event == 'Salvar Equipamento':
-            save_equipamento(values['-TIPO_EQUIP-'], values['-DESKTOP_EQUIP-'], values['-VENDOR_EQUIP-'], values['-MODEL_EQUIP-'], values['-MAC_EQUIP-'], values['-SERIE_EQUIP-'], values['-FSAN_EQUIP-'])
-
-        # Alterar Equipamento
-        if event == 'Alterar Equipamento':
-            update_equipamento(values['-EQUIP_ID-'], values['-TIPO_EQUIP-'], values['-DESKTOP_EQUIP-'], values['-VENDOR_EQUIP-'], values['-MODEL_EQUIP-'], values['-MAC_EQUIP-'], values['-SERIE_EQUIP-'], values['-FSAN_EQUIP-'])
-
-    window.close()
-
-# Tela de login
+# Interface de login
 def login_screen():
-    sg.theme('LightBlue')
-    window = sg.Window('Login', login_layout())
+    layout = [
+        [sg.Text("Usuário:", size=(10, 1)), sg.Input(key="-USERNAME-", size=(30, 1))],
+        [sg.Text("Senha:", size=(10, 1)), sg.Input(key="-PASSWORD-", password_char="*", size=(30, 1))],
+        [sg.Button("Entrar"), sg.Button("Registrar")]
+    ]
+
+    window = sg.Window("Login", layout)
 
     while True:
         event, values = window.read()
-        if event == sg.WINDOW_CLOSED:
+        if event in (sg.WINDOW_CLOSED, "Cancelar"):
             break
-
-        elif event == 'Login':
-            user_data = authenticate_user(values['-LOGIN_USER-'], values['-LOGIN_PASS-'])
-            if user_data:
-                user_id, username = user_data
+        elif event == "Entrar":
+            user = authenticate_user(values["-USERNAME-"], values["-PASSWORD-"])
+            if user:
                 window.close()
-                main(user_id, username)
+                main_screen(values["-USERNAME-"])  # Passa o nome do usuário logado
             else:
-                sg.popup('Usuário ou senha inválidos!')
-
-        elif event == 'Cadastrar Usuário':
-            insert_data('usuarios', {
-                'usuario': values['-LOGIN_USER-'],
-                'senha': values['-LOGIN_PASS-']
-            })
-            sg.popup('Usuário cadastrado com sucesso!')
+                sg.popup_error("Usuário ou senha inválidos.")
+        elif event == "Registrar":
+            username = values["-USERNAME-"]
+            password = values["-PASSWORD-"]
+            if username and password:
+                register_user(username, password)
+            else:
+                sg.popup_error("Preencha os campos para registrar.")
 
     window.close()
 
-# Inicializar o banco de dados e iniciar a tela de login
-if __name__ == '__main__':
-    create_tables()
+def alterar_chamado(modificado_por):
+    connection = sqlite3.connect("lecompy_data.db")
+    cursor = connection.cursor()
+
+    # Obter registros existentes
+    cursor.execute("""
+    SELECT r.id_registro, e.ativo, e.mac, r.chamado_lecom, r.data_inicio, r.data_conclusao, r.status, r.responsavel 
+    FROM registros r
+    JOIN equipamentos e ON r.id_equipamento = e.id_equipamento
+    """)
+    registros = cursor.fetchall()
+
+    if not registros:
+        sg.popup_error("Nenhum chamado disponível para alteração.")
+        return
+
+    # Layout para selecionar registro e alterar
+    layout = [
+        [sg.Text("Selecione o Chamado:")],
+        [sg.Combo([f"{reg[0]} - {reg[1]} - {reg[3]} - {reg[6]}" for reg in registros], key="-REGISTRO-", size=(60, 1))],
+        [sg.Text("Novo Status:"), sg.Combo(["Solicitado", "Montado", "Desmontado"], key="-NOVO_STATUS-")],
+        [sg.Button("Salvar"), sg.Button("Cancelar")]
+    ]
+
+    window = sg.Window("Alterar Chamado", layout)
+
+    while True:
+        event, values = window.read()
+        if event in (sg.WINDOW_CLOSED, "Cancelar"):
+            break
+        elif event == "Salvar":
+            registro_selecionado = values["-REGISTRO-"]
+            if not registro_selecionado:
+                sg.popup_error("Selecione um chamado!")
+                continue
+
+            id_registro = int(registro_selecionado.split(" - ")[0])
+            novo_status = values["-NOVO_STATUS-"]
+
+            cursor.execute("""
+            UPDATE registros
+            SET status = ?, modificado_por = ?
+            WHERE id_registro = ?
+            """, (novo_status, modificado_por, id_registro))
+            connection.commit()
+
+            sg.popup("Chamado alterado com sucesso!")
+            break
+
+    connection.close()
+    window.close()
+
+# Página principal: Equipamentos e Chamados
+def main_screen(username):
+    equipamentos = atualizar_tabela_equipamentos()
+    chamados = atualizar_tabela_chamados()
+
+    layout = [
+        [sg.Text(f"Usuário logado: {username}", size=(40, 1), justification="left")],
+        [sg.TabGroup([
+            [sg.Tab("Equipamentos", [
+                [sg.Button("Adicionar Equipamento")],
+                [sg.Table(values=equipamentos, headings=["ID", "Ativo", "Vendor", "Modelo", "Tipo", "MAC", "Nº Série", "FSAN"], 
+                          key="-EQUIP_TABLE-", auto_size_columns=False, justification="center", num_rows=10)],
+                [sg.Button("Excluir Equipamento", key="-EXCLUIR_EQUIP-")]
+            ])],
+            [sg.Tab("Chamados", [
+                [sg.Button("Registrar Chamado"), sg.Button("Alterar Chamado")],
+                [sg.Table(values=chamados, headings=["Chamado LECOM", "Ativo", "MAC", "Nº Série", "FSAN", "Início", "Fim", "Status", "Responsável", "Modificado Por"], 
+                          key="-CHAMADOS_TABLE-", auto_size_columns=False, justification="center", num_rows=10)],
+                [sg.Button("Excluir Chamado", key="-EXCLUIR_CHAMADO-")]
+            ])]
+        ])],
+        [sg.Button("Sair")]
+    ]
+
+    window = sg.Window("Página Principal", layout)
+
+    while True:
+        event, values = window.read()
+        if event in (sg.WINDOW_CLOSED, "Sair"):
+            break
+        elif event == "Adicionar Equipamento":
+            add_equipamento()
+            equipamentos = atualizar_tabela_equipamentos()  # Atualiza a lista de equipamentos
+            window["-EQUIP_TABLE-"].update(values=equipamentos)
+        elif event == "Registrar Chamado":
+            registrar_chamado(username)
+            chamados = atualizar_tabela_chamados()  # Atualiza a lista de chamados
+            window["-CHAMADOS_TABLE-"].update(values=chamados)
+        elif event == "Alterar Chamado":
+            alterar_chamado(username)
+            chamados = atualizar_tabela_chamados()  # Atualiza a lista de chamados
+            window["-CHAMADOS_TABLE-"].update(values=chamados)
+        elif event == "-EXCLUIR_EQUIP-":
+            excluir_equipamento(window, equipamentos)
+            equipamentos = atualizar_tabela_equipamentos()  # Atualiza a lista de equipamentos
+            window["-EQUIP_TABLE-"].update(values=equipamentos)
+        elif event == "-EXCLUIR_CHAMADO-":
+            excluir_chamado(window, chamados)
+            chamados = atualizar_tabela_chamados()  # Atualiza a lista de chamados
+            window["-CHAMADOS_TABLE-"].update(values=chamados)
+        elif event == "Sair":
+            window.close()
+            login_screen()
+            break
+
+    window.close()
+
+# Função para adicionar um novo equipamento
+def add_equipamento():
+    layout = [
+        [sg.Text("Ativo:"), sg.Input(key="-ATIVO-")],
+        [sg.Text("Vendor:"), sg.Input(key="-VENDOR-")],
+        [sg.Text("Modelo:"), sg.Input(key="-MODELO-")],
+        [sg.Text("Tipo:"), sg.Combo(["ONU", "ONT", "roteador"], key="-TIPO-")],
+        [sg.Text("MAC:"), sg.Input(key="-MAC-")],
+        [sg.Text("Nº Série:"), sg.Input(key="-SERIE-")],
+        [sg.Text("FSAN:"), sg.Input(key="-FSAN-")],
+        [sg.Button("Salvar"), sg.Button("Cancelar")]
+    ]
+
+    window = sg.Window("Adicionar Equipamento", layout)
+
+    while True:
+        event, values = window.read()
+        if event in (sg.WINDOW_CLOSED, "Cancelar"):
+            break
+        elif event == "Salvar":
+            connection = sqlite3.connect("lecompy_data.db")
+            cursor = connection.cursor()
+
+            cursor.execute("""
+            INSERT INTO equipamentos (ativo, vendor, modelo, tipo, mac, numero_serie, fsan) 
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (values["-ATIVO-"], values["-VENDOR-"], values["-MODELO-"], values["-TIPO-"], values["-MAC-"], values["-SERIE-"], values["-FSAN-"]))
+            connection.commit()
+            connection.close()
+            sg.popup("Equipamento registrado com sucesso!")
+            break
+
+    window.close()
+
+# Função para excluir equipamento
+def excluir_equipamento(window, equipamentos):
+    selecionado = window["-EQUIP_TABLE-"].get()
+    if selecionado:
+        # Pegue o índice da linha selecionada
+        linha_selecionada = selecionado[0]  # Apenas o primeiro índice, já que é possível selecionar uma linha por vez
+        
+        if linha_selecionada is not None:
+            # Pegue os dados da linha selecionada (completa)
+            id_equipamento = equipamentos[linha_selecionada][0]  # Pegue a ID do equipamento, que é a primeira coluna
+
+            # Confirme a exclusão
+            confirmar = sg.popup_yes_no(f"Deseja excluir o equipamento com ID {id_equipamento}?")
+            if confirmar == "Yes":
+                connection = sqlite3.connect("lecompy_data.db")
+                cursor = connection.cursor()
+                cursor.execute("DELETE FROM equipamentos WHERE id_equipamento = ?", (id_equipamento,))
+                connection.commit()
+                connection.close()
+                sg.popup("Equipamento excluído com sucesso!")
+        else:
+            sg.popup_error("Nenhuma linha selecionada para exclusão!")
+
+
+# Função para registrar um chamado
+def registrar_chamado(responsavel):
+    connection = sqlite3.connect("lecompy_data.db")
+    cursor = connection.cursor()
+    
+    # Obter equipamentos cadastrados
+    cursor.execute("SELECT * FROM equipamentos")
+    equipamentos = cursor.fetchall()
+
+    # Criação da interface gráfica para registro do chamado
+    equipamentos_list = [f"{equip[0]} - {equip[1]}" for equip in equipamentos]
+    layout = [
+        [sg.Text("Equipamento:")],
+        [sg.Combo(equipamentos_list, key="-EQUIPAMENTO-")],
+        [sg.Text("Chamado LECOM:"), sg.Input(key="-CHAMADO-")],
+        [sg.Text("Data Início:"), sg.Input(key="-DATA_INICIO-", default_text=datetime.now().strftime("%Y-%m-%d"))],
+        [sg.Text("Data Conclusão:"), sg.Input(key="-DATA_CONCLUSAO-")],  # Novo campo de Data Conclusão
+        [sg.Text("Status:"), sg.Combo(["Solicitado", "Montado", "Desmontado"], key="-STATUS-")],
+        [sg.Button("Salvar"), sg.Button("Cancelar")]
+    ]
+
+    window = sg.Window("Registrar Chamado", layout)
+
+    while True:
+        event, values = window.read()
+        if event in (sg.WINDOW_CLOSED, "Cancelar"):
+            break
+        elif event == "Salvar":
+            equipamento_selecionado = values["-EQUIPAMENTO-"]
+            if not equipamento_selecionado:
+                sg.popup_error("Selecione um equipamento!")
+                continue
+
+            id_equipamento = int(equipamento_selecionado.split(" - ")[0])
+            chamado_lecom = values["-CHAMADO-"]
+            data_inicio = values["-DATA_INICIO-"]
+            data_conclusao = values["-DATA_CONCLUSAO-"]  # Obter a Data de Conclusão
+            status = values["-STATUS-"]
+
+            # Inserir no banco de dados
+            cursor.execute("""
+            INSERT INTO registros (id_equipamento, chamado_lecom, data_inicio, data_conclusao, status, responsavel)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """, (id_equipamento, chamado_lecom, data_inicio, data_conclusao, status, responsavel))
+            connection.commit()
+            sg.popup("Chamado registrado com sucesso!")
+            break
+
+    connection.close()
+    window.close()
+
+
+# Função para excluir chamado
+def excluir_chamado(window, chamados):
+    selecionado = window["-CHAMADOS_TABLE-"].get()
+    if selecionado:
+        # Pegue o índice da linha selecionada
+        linha_selecionada = selecionado[0]  # Apenas o primeiro índice, já que é possível selecionar uma linha por vez
+
+        # Verifique se a linha selecionada é válida
+        if linha_selecionada is not None:
+            # Pegue os dados da linha selecionada
+            chamado_lecom = chamados[linha_selecionada][0]  # A primeira coluna do chamado LECOM
+
+            # Confirme a exclusão
+            confirmar = sg.popup_yes_no(f"Deseja excluir o chamado LECOM: {chamado_lecom}?")
+            if confirmar == "Yes":
+                connection = sqlite3.connect("lecompy_data.db")
+                cursor = connection.cursor()
+                cursor.execute("DELETE FROM registros WHERE chamado_lecom = ?", (chamado_lecom,))
+                connection.commit()
+                connection.close()
+                sg.popup("Chamado excluído com sucesso!")
+        else:
+            sg.popup_error("Nenhuma linha selecionada para exclusão!")
+
+
+# Funções para atualizar as tabelas
+def atualizar_tabela_equipamentos():
+    connection = sqlite3.connect("lecompy_data.db")
+    cursor = connection.cursor()
+    cursor.execute("SELECT * FROM equipamentos")
+    equipamentos = cursor.fetchall()
+    connection.close()
+    return equipamentos
+
+def atualizar_tabela_chamados():
+    connection = sqlite3.connect("lecompy_data.db")
+    cursor = connection.cursor()
+    cursor.execute("""
+    SELECT r.chamado_lecom, e.ativo, e.mac, e.numero_serie, e.fsan, r.data_inicio, r.data_conclusao, r.status, r.responsavel, r.modificado_por
+    FROM registros r
+    JOIN equipamentos e ON r.id_equipamento = e.id_equipamento
+    """)
+    chamados = cursor.fetchall()
+    connection.close()
+    return chamados
+
+# Função principal para iniciar o programa
+def main():
     login_screen()
-    conn.close()
+
+# Iniciar o programa
+if __name__ == "__main__":
+    main()
