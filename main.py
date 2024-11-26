@@ -289,7 +289,7 @@ def registrar_chamado(responsavel):
         [sg.Text("Equipamento:")],
         [sg.Combo(equipamentos_list, key="-EQUIPAMENTO-")],
         [sg.Text("Chamado LECOM:"), sg.Input(key="-CHAMADO-")],
-        [sg.Text("Data Início:"), sg.Input(key="-DATA_INICIO-", default_text=datetime.now().strftime("%Y-%m-%d"))],
+        [sg.Text("Data Início:"), sg.Input(key="-DATA_INICIO-", default_text=datetime.now().strftime("%d/%m/%Y"))],
         [sg.Text("Data Conclusão:"), sg.Input(key="-DATA_CONCLUSAO-")],  # Novo campo de Data Conclusão
         [sg.Text("Status:"), sg.Combo(["Solicitado", "Montado", "Desmontado"], key="-STATUS-")],
         [sg.Button("Salvar"), sg.Button("Cancelar")]
